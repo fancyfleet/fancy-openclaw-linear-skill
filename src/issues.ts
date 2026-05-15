@@ -672,14 +672,17 @@ interface DelegatedIssuesResponse {
   };
 }
 
-export async function getMyQueue(projectName?: string): Promise<Issue[]> {
+export async function getMyQueue(projectName?: string, options?: { includeBacklog?: boolean }): Promise<Issue[]> {
   const self = await getSelfUser();
+  const stateFilter = options?.includeBacklog
+    ? 'state: { type: { nin: ["completed", "canceled", "started"] } }'
+    : 'state: { type: { nin: ["completed", "canceled", "started"] }, name: { neq: "Backlog" } }';
   const data = await linearGraphQL<DelegatedIssuesResponse>(
     `
       query MyQueue($delegateId: ID!) {
         issues(first: 100, filter: {
           delegate: { id: { eq: $delegateId } },
-          state: { type: { nin: ["completed", "canceled", "started"] } }
+          ${stateFilter}
         }) {
           nodes {
             id

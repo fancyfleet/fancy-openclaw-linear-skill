@@ -10,6 +10,13 @@ import { getComments, getIssueHistory } from "./boards";
 import { addComment, getIssue } from "./issues";
 import { IssueHistory } from "./types";
 
+const BACKLOG_CONSIDER_WORK_ERROR = "Ticket is in Backlog — cannot consider work. Use `linear observe-issue` to view, or wait for promotion to To Do.";
+const BACKLOG_FORCE_WARNING = "⚠️  Warning: forced past Backlog gate for consider-work. This ticket was explicitly parked.";
+
+function isBacklogState(state?: { name?: string | null } | null): boolean {
+  return (state?.name ?? "").toLowerCase() === "backlog";
+}
+
 /**
  * One state/delegate/assignee/priority change derived from Linear's issue
  * history. A single Linear history record may produce multiple events (e.g.
@@ -37,7 +44,7 @@ export interface ObserveResult {
   assignee: { name: string } | null;
   delegate: { name: string } | null;
   /** Sorted ascending by createdAt */
-  comments: Array<{ id: string; body: string; createdAt: string; user: { name: string; isAgent?: boolean | null } }>;
+  comments: Array<{ id: string; body: string; createdAt: string; user: { name: string; isAgent?: boolean | null; app?: boolean | null } }>;
   /** Sorted ascending by createdAt */
   history: TimelineEvent[];
 }
@@ -78,7 +85,7 @@ export async function observeIssue(
     id: c.id,
     body: c.body,
     createdAt: c.createdAt ?? "",
-    user: c.user ? { name: c.user.name, isAgent: c.user.isAgent } : { name: "Unknown" },
+    user: c.user ? { name: c.user.name, isAgent: c.user.isAgent, app: c.user.app } : { name: "Unknown" },
   }));
 
   // Explicit ascending sort by createdAt (guarantee for consumers)
@@ -157,6 +164,14 @@ export async function considerWork(
   issueId: string,
   options?: { force?: boolean }
 ): Promise<SemanticResult & { context?: ObserveResult }> {
+  const issue = await getIssue(issueId);
+  if (isBacklogState(issue.state)) {
+    if (!options?.force) {
+      throw new Error(BACKLOG_CONSIDER_WORK_ERROR);
+    }
+    process.stderr.write(`${BACKLOG_FORCE_WARNING}\n`);
+  }
+
   return executeTransition("considerWork", { issueId }, {
     targetState: "thinking",
     commentMode: "none",

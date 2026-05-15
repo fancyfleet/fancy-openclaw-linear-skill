@@ -159,7 +159,7 @@ async function buildObserveContext(issue: Awaited<ReturnType<typeof getIssue>>):
     id: c.id,
     body: c.body,
     createdAt: c.createdAt ?? "",
-    user: c.user ? { name: c.user.name } : { name: "Unknown" },
+    user: c.user ? { name: c.user.name, isAgent: c.user.isAgent, app: c.user.app } : { name: "Unknown" },
   }));
   rawComments.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 

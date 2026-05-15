@@ -5,6 +5,7 @@ import { addComment, findUserByName, resolveUserWithHints, getIssue, updateIssue
 import { findSemanticState } from "../states";
 import {
   considerWork,
+  observeIssue,
   refuseWork,
   beginWork,
   handoffWork,
@@ -110,6 +111,37 @@ beforeEach(() => {
   }));
 });
 
+describe("observeIssue", () => {
+  it("preserves comment author app/isAgent metadata for presentation rendering", async () => {
+    mockGetComments.mockResolvedValue([
+      {
+        id: "c-human",
+        body: "Human note",
+        createdAt: "2026-01-01T00:00:00Z",
+        user: { id: "user-matt", name: "Matt Henry", app: false, isAgent: false },
+      },
+      {
+        id: "c-agent",
+        body: "Agent note",
+        createdAt: "2026-01-02T00:00:00Z",
+        user: { id: "user-igor", name: "Igor (Back End Dev)", app: true },
+      },
+    ]);
+
+    const result = await observeIssue("AI-100");
+
+    expect(result.comments[0].user).toMatchObject({
+      name: "Matt Henry",
+      app: false,
+      isAgent: false,
+    });
+    expect(result.comments[1].user).toMatchObject({
+      name: "Igor (Back End Dev)",
+      app: true,
+    });
+  });
+});
+
 describe("considerWork", () => {
   it("sets delegate=self, status=In Progress, assignee=null", async () => {
     mockGetIssue.mockResolvedValue({
@@ -137,6 +169,25 @@ describe("considerWork", () => {
   it("does not post any comment", async () => {
     await considerWork("AI-100");
     expect(mockAddComment).not.toHaveBeenCalled();
+  });
+
+  it("preserves comment author app/isAgent metadata in returned context", async () => {
+    mockGetComments.mockResolvedValue([
+      {
+        id: "c-human",
+        body: "Human note",
+        createdAt: "2026-01-01T00:00:00Z",
+        user: { id: "user-matt", name: "Matt Henry", app: false, isAgent: false },
+      },
+    ]);
+
+    const result = await considerWork("AI-100");
+
+    expect(result.context?.comments[0].user).toMatchObject({
+      name: "Matt Henry",
+      app: false,
+      isAgent: false,
+    });
   });
 
   it("no-ops when the issue is no longer delegated or assigned to self", async () => {
@@ -229,6 +280,38 @@ describe("considerWork", () => {
       assigneeId: null,
     });
     expect(result.state).toBe("In Progress");
+  });
+
+  it("hard-rejects Backlog tickets unless forced", async () => {
+    mockGetIssue.mockResolvedValue({
+      ...baseIssue,
+      state: { id: "state-backlog", name: "Backlog", type: "backlog" },
+      delegate: { id: "user-igor", name: "Igor (Back End Dev)" },
+    });
+
+    await expect(considerWork("AI-100")).rejects.toThrow("Ticket is in Backlog — cannot consider work. Use `linear observe-issue` to view, or wait for promotion to To Do.");
+    expect(mockUpdateIssue).not.toHaveBeenCalled();
+    expect(mockAddComment).not.toHaveBeenCalled();
+  });
+
+  it("can force considerWork on a Backlog ticket with a visible warning", async () => {
+    const stderrSpy = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
+    mockGetIssue.mockResolvedValue({
+      ...baseIssue,
+      state: { id: "state-backlog", name: "Backlog", type: "backlog" },
+      delegate: { id: "user-igor", name: "Igor (Back End Dev)" },
+    });
+
+    const result = await considerWork("AI-100", { force: true });
+
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("forced past Backlog gate"));
+    expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
+      stateId: "state-thinking",
+      delegateId: "user-igor",
+      assigneeId: null,
+    });
+    expect(result.state).toBe("In Progress");
+    stderrSpy.mockRestore();
   });
 });
 

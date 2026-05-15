@@ -134,6 +134,13 @@ describe("getComments", () => {
     expect(callVars.count).toBe(10);
   });
 
+  it("requests Linear's app flag for comment authors", async () => {
+    mockedGraphQL.mockResolvedValue({ issue: { comments: { nodes: [] } } });
+    await getComments("AI-100");
+    const query = mockedGraphQL.mock.calls[0][0] as string;
+    expect(query).toContain("app");
+  });
+
   it("throws when issue not found", async () => {
     mockedGraphQL.mockResolvedValue({ issue: null });
     await expect(getComments("bad-id")).rejects.toThrow("Issue not found");

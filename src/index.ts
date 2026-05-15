@@ -111,6 +111,8 @@ function isHumanAuthoredComment(comment: RenderComment): boolean {
   if (user?.name === "Matt Henry") return true;
   if (user?.isAgent === false) return true;
   if (user?.isAgent === true) return false;
+  if (user?.app === true) return false;
+  if (user?.app === false) return true;
 
   // Linear does not currently expose an isAgent flag in all workspaces. Our
   // agent accounts conventionally include a role in parentheses, e.g.
@@ -332,9 +334,9 @@ async function main(): Promise<void> {
 
   // --- Extracted handler functions for canonical commands ---
 
-  async function handleQueue(options: { next?: boolean; blocked?: boolean; project?: string }): Promise<unknown> {
+  async function handleQueue(options: { next?: boolean; blocked?: boolean; project?: string; includeBacklog?: boolean }): Promise<unknown> {
     if (options.blocked) return getMyBlocked(undefined);
-    const queue = await getMyQueue(options.project);
+    const queue = await getMyQueue(options.project, { includeBacklog: options.includeBacklog });
     if (options.next) {
       if (queue.length === 0) return { message: "Queue is empty — nothing to do." };
       return queue[0];
@@ -353,7 +355,8 @@ async function main(): Promise<void> {
     .option("--next", "Return only the highest-priority issue")
     .option("--blocked", "Show only blocked issues")
     .option("--project <name>", "Filter by project name")
-    .action(async (options: { next?: boolean; blocked?: boolean; project?: string }) => {
+    .option("--include-backlog", "Include parked Backlog issues")
+    .action(async (options: { next?: boolean; blocked?: boolean; project?: string; includeBacklog?: boolean }) => {
       await runCommand(() => handleQueue(options), program.opts<{ human?: boolean }>().human);
     });
 
@@ -379,8 +382,9 @@ async function main(): Promise<void> {
 
   program.command("my-queue", { hidden: true })
     .option("--project <name>", "Filter by project name")
-    .action(async (options: { project?: string }) => {
-      await runCommand(() => handleQueue({ project: options.project }), program.opts<{ human?: boolean }>().human);
+    .option("--include-backlog", "Include parked Backlog issues")
+    .action(async (options: { project?: string; includeBacklog?: boolean }) => {
+      await runCommand(() => handleQueue({ project: options.project, includeBacklog: options.includeBacklog }), program.opts<{ human?: boolean }>().human);
     });
 
   program.command("my-next", { hidden: true }).action(async () => {
@@ -819,7 +823,7 @@ async function main(): Promise<void> {
     await runCommand(async () => observeIssue(id, options.all, options.since), program.opts<{ human?: boolean }>().human);
   });
 
-  program.command("consider-work").alias("considerWork").argument("<id>").option("--force", "Allow reopening Done/Canceled issues").description("Mark issue as being considered by agent (returns issue context)").action(async (id: string, options: { force?: boolean }) => {
+  program.command("consider-work").alias("considerWork").argument("<id>").option("--force", "Allow reopening Done/Canceled issues or explicitly override the Backlog gate").description("Mark issue as being considered by agent (returns issue context)").action(async (id: string, options: { force?: boolean }) => {
     await runCommand(async () => considerWork(id, { force: options.force }), program.opts<{ human?: boolean }>().human);
   });
 

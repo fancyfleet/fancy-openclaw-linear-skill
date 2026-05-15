@@ -173,6 +173,7 @@ export async function getComments(issueId: string, all = true): Promise<Comment[
                 id
                 name
                 email
+                app
               }
             }
           }

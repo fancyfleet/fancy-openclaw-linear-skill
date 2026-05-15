@@ -43,8 +43,8 @@ Use `observe-issue` when you are @mentioned (not delegated) or doing a board swe
 #### Write Commands
 
 ```
-linear consider-work <ID>             # Accept delegation: set delegate=self, status=Thinking, clear assignee; no-op on Done/Canceled
-linear consider-work <ID> --force     # Explicitly allow reopening Done/Canceled issues
+linear consider-work <ID>             # Accept delegation: set delegate=self, status=Thinking, clear assignee; rejects Backlog; no-op on Done/Canceled
+linear consider-work <ID> --force     # Explicitly override Backlog gate or reopen Done/Canceled issues with a warning
                                       # Returns issue context + last 10 comments
 linear begin-work <ID>                # Start active work: status=Doing (idempotent)
 linear refuse-work <ID> <agent>       # Decline: status=Todo, delegate to another agent (requires --comment)
@@ -131,7 +131,8 @@ Agents should NOT use these. They bypass the semantic intent model and cause del
 ## Navigation & Utility Commands
 
 ```
-linear queue                         # Issues delegated to you, not yet started (Backlog/To Do only — excludes Thinking/Doing)
+linear queue                         # Issues delegated to you, not yet started (To Do only by default; excludes Backlog/Thinking/Doing)
+linear queue --include-backlog       # Explicitly include parked Backlog issues
 linear queue --next                  # Highest-priority not-yet-started issue only
 linear queue --blocked               # Blocked issues only
 linear my-issues                     # All issues assigned or delegated to you
