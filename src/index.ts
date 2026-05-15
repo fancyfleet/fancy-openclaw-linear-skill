@@ -530,6 +530,17 @@ async function main(): Promise<void> {
     await runCommand(async () => (await getIssue(id)).children ?? [], program.opts<{ human?: boolean }>().human);
   });
 
+  program.command("issue-move-team")
+    .argument("<issueId>", "Issue identifier (e.g. LIFE-379)")
+    .argument("<team>", "Target team key or UUID (e.g. AI)")
+    .description("Move an issue to a different team")
+    .action(async (issueId: string, team: string) => {
+      await runCommand(async () => {
+        const teamId = await resolveTeamId(team);
+        return updateIssue(issueId, { teamId });
+      }, program.opts<{ human?: boolean }>().human);
+    });
+
   program.command("board").argument("<team>").action(async (team: string) => {
     await runCommand(async () => {
       const teamId = await resolveTeamId(team);

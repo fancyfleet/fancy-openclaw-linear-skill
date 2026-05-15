@@ -119,4 +119,5 @@ export interface UpdateIssueInput {
   projectId?: string;
   projectMilestoneId?: string;
   parentId?: string | null;
+  teamId?: string;
 }
