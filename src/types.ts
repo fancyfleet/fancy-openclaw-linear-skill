@@ -2,6 +2,10 @@ export interface User {
   id: string;
   name: string;
   email?: string | null;
+  /** Optional on integrations that can distinguish bot/agent users. */
+  isAgent?: boolean | null;
+  /** Linear's current bot/application user flag; used as an agent fallback. */
+  app?: boolean | null;
 }
 
 export interface WorkflowState {

@@ -111,7 +111,7 @@ You should see your Linear user name and email printed. If not, see `references/
 
 | Command | Description |
 |---|---|
-| `linear consider-work <id>` | Mark issue as being considered (status → Thinking, delegate → self, assignee cleared). Returns issue context. No-ops on Done/Canceled tickets unless `--force` is supplied. |
+| `linear consider-work <id>` | Mark issue as being considered (status → Thinking, delegate → self, assignee cleared). Returns issue context. Hard-rejects Backlog tickets; `--force` explicitly overrides Backlog and Done/Canceled gates with a warning. |
 | `linear begin-work <id>` | Begin actively working (status → Doing). Idempotent. |
 | `linear handoff-work <id> <agent> [--comment <msg>] [--comment-file <path>]` | Hand off task to another agent. Sets delegate, clears assignee, posts comment. |
 | `linear complete <id> [--comment <msg>] [--comment-file <path>]` | Mark task as Done, clear delegate. |
@@ -216,7 +216,8 @@ These commands still work when invoked directly but are hidden from `linear --he
 | `linear my-issues` | All issues assigned to me |
 | `linear my-todos` | Issues in Todo state |
 | `linear my-new [--since <iso>]` | Recently updated issues (default: last 24h) |
-| `linear my-queue [--project <name>]` | Issues in Todo, filtered by project optionally |
+| `linear queue [--next] [--project <name>] [--include-backlog]` | Delegated actionable queue. Excludes Backlog by default; use `--include-backlog` for explicit parked-ticket visibility. |
+| `linear my-queue [--project <name>] [--include-backlog]` | Hidden compatibility alias for `queue` |
 | `linear my-next` | Highest-priority pending issue |
 | `linear my-blocked [--limit <n>]` | Issues assigned to me in Blocked state |
 | `linear review-queue` | Issues needing review |

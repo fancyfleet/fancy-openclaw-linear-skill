@@ -39,6 +39,7 @@ export const COMMENT_USER_FIELDS = `
   id
   name
   email
+  app
 `;
 
 export const COMMENT_FIELDS = `
