@@ -24,6 +24,10 @@ jest.mock("../issues", () => ({
   findUserByName: jest.fn()
 }));
 
+jest.mock("../teams", () => ({
+  resolveTeamId: jest.fn().mockResolvedValue("team-id-ai")
+}));
+
 const mockedGraphQL = linearGraphQL as jest.MockedFunction<typeof linearGraphQL>;
 const mockGetIssue = getIssue as jest.MockedFunction<typeof getIssue>;
 const mockUpdateIssue = updateIssue as jest.MockedFunction<typeof updateIssue>;
@@ -216,8 +220,6 @@ describe("createProject description routing", () => {
   beforeEach(() => {
     mockedGraphQL.mockReset();
     mockFindUserByName.mockReset();
-    // resolveTeamId uses cached teams, so no GraphQL call needed for that.
-    // Only the createProject mutation call hits GraphQL.
     mockedGraphQL.mockResolvedValueOnce({
       projectCreate: { success: true, project: { id: "p-new", name: "New Project", url: "https://linear.app/test" } }
     });
