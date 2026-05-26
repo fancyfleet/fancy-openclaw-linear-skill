@@ -1,5 +1,6 @@
 import { linearGraphQL } from "../client";
 import { createIssue, resolveUserRef, resolveUserWithHints } from "../issues";
+import { findSemanticState } from "../states";
 import { normalizeCliDescription } from "../utils";
 
 jest.mock("../client", () => ({
@@ -7,7 +8,13 @@ jest.mock("../client", () => ({
   linearGraphQL: jest.fn()
 }));
 
+jest.mock("../states", () => ({
+  ...jest.requireActual("../states"),
+  findSemanticState: jest.fn()
+}));
+
 const mockedGraphQL = linearGraphQL as jest.MockedFunction<typeof linearGraphQL>;
+const mockedFindSemanticState = findSemanticState as jest.MockedFunction<typeof findSemanticState>;
 
 // Silence stderr warnings during tests
 beforeEach(() => {
@@ -99,7 +106,17 @@ describe("resolveUserWithHints (UUID passthrough)", () => {
 });
 
 describe("create description/delegate handling", () => {
-  beforeEach(() => mockedGraphQL.mockReset());
+  beforeEach(() => {
+    mockedGraphQL.mockReset();
+    mockedFindSemanticState.mockReset();
+    mockedFindSemanticState.mockResolvedValue({
+      id: "state-todo",
+      name: "Todo",
+      type: "unstarted",
+      color: "#000000",
+      position: 0
+    });
+  });
 
   it("normalizes literal escaped newlines in CLI descriptions", () => {
     expect(normalizeCliDescription("# Heading\\n\\nBody\\r\\nNext")).toBe("# Heading\n\nBody\nNext");
@@ -118,7 +135,7 @@ describe("create description/delegate handling", () => {
           createdAt: "2026-05-02T00:00:00Z",
           updatedAt: "2026-05-02T00:00:00Z",
           priority: 2,
-          state: { id: "state-1", name: "Todo", type: "unstarted" },
+          state: { id: "state-todo", name: "Todo", type: "unstarted" },
           assignee: null,
           team: { id: "team-1", key: "AI", name: "AI" },
           delegate: { id: "user-charles", name: "Charles (CTO)" },
@@ -148,5 +165,103 @@ describe("create description/delegate handling", () => {
         })
       })
     );
+  });
+});
+
+describe("create default state (AI-1097)", () => {
+  beforeEach(() => {
+    mockedGraphQL.mockReset();
+    mockedFindSemanticState.mockReset();
+  });
+
+  const fetchIssueResponse = {
+    issue: {
+      id: "00000000-0000-4000-8000-0000000000aa",
+      identifier: "AI-1000",
+      title: "Default state test",
+      description: "",
+      url: "https://linear.app/fancymatt/issue/AI-1000/default-state-test",
+      createdAt: "2026-05-26T00:00:00Z",
+      updatedAt: "2026-05-26T00:00:00Z",
+      priority: 0,
+      state: { id: "state-todo", name: "Todo", type: "unstarted" },
+      assignee: null,
+      team: { id: "team-ai", key: "AI", name: "AI" },
+      delegate: null,
+      project: null,
+      projectMilestone: null,
+      labels: { nodes: [] },
+      relations: { nodes: [] },
+      comments: { nodes: [] },
+      children: { nodes: [] }
+    }
+  };
+
+  it("defaults to the team's To Do state when no stateId and no project are provided", async () => {
+    mockedFindSemanticState.mockResolvedValue({
+      id: "state-todo",
+      name: "Todo",
+      type: "unstarted",
+      color: "#000000",
+      position: 1
+    });
+    mockedGraphQL
+      .mockResolvedValueOnce({ issueCreate: { success: true, issue: { id: "00000000-0000-4000-8000-0000000000aa", identifier: "AI-1000", title: "Default state test" } } })
+      .mockResolvedValueOnce(fetchIssueResponse);
+
+    await createIssue({
+      teamId: "team-ai",
+      title: "Default state test"
+    });
+
+    expect(mockedFindSemanticState).toHaveBeenCalledWith("team-ai", "todo");
+    expect(mockedGraphQL).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("issueCreate"),
+      expect.objectContaining({
+        input: expect.objectContaining({
+          stateId: "state-todo"
+        })
+      })
+    );
+  });
+
+  it("respects an explicit stateId and skips the To Do lookup", async () => {
+    mockedGraphQL
+      .mockResolvedValueOnce({ issueCreate: { success: true, issue: { id: "00000000-0000-4000-8000-0000000000bb", identifier: "AI-1001", title: "Explicit backlog" } } })
+      .mockResolvedValueOnce(fetchIssueResponse);
+
+    await createIssue({
+      teamId: "team-ai",
+      title: "Explicit backlog",
+      stateId: "state-backlog"
+    });
+
+    expect(mockedFindSemanticState).not.toHaveBeenCalled();
+    expect(mockedGraphQL).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("issueCreate"),
+      expect.objectContaining({
+        input: expect.objectContaining({
+          stateId: "state-backlog"
+        })
+      })
+    );
+  });
+
+  it("warns and falls through if the team's To Do state cannot be resolved", async () => {
+    mockedFindSemanticState.mockRejectedValue(new Error("No workflow state found"));
+    mockedGraphQL
+      .mockResolvedValueOnce({ issueCreate: { success: true, issue: { id: "00000000-0000-4000-8000-0000000000cc", identifier: "AI-1002", title: "No todo state" } } })
+      .mockResolvedValueOnce(fetchIssueResponse);
+
+    await createIssue({
+      teamId: "team-ai",
+      title: "No todo state"
+    });
+
+    const createCall = mockedGraphQL.mock.calls[0];
+    const input = (createCall[1] as { input: Record<string, unknown> }).input;
+    expect(input.stateId).toBeUndefined();
   });
 });

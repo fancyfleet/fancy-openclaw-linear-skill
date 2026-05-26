@@ -443,7 +443,11 @@ async function main(): Promise<void> {
           const project = await findProjectByName(projectId);
           projectId = project.id;
         }
-        const stateId = stateName && teamId ? (await findSemanticState(teamId, stateName)).id : undefined;
+        // Default to "todo" so the CLI matches its --help text. Without this,
+        // Linear's API silently demotes issues to Backlog when no project is set,
+        // and the connector won't auto-dispatch them. See AI-1097.
+        const effectiveStateName = stateName ?? "todo";
+        const stateId = teamId ? (await findSemanticState(teamId, effectiveStateName)).id : undefined;
         const input: CreateIssueInput = {
           title,
           description,

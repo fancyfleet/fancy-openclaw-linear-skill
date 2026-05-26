@@ -29,6 +29,10 @@ jest.mock("../auth", () => ({
     .mockResolvedValue({ id: "self-1", name: "Test Bot", email: "bot@test.com" })
 }));
 
+jest.mock("../states", () => ({
+  findSemanticState: jest.fn().mockResolvedValue({ id: "state-todo-1", name: "To Do", type: "unstarted", color: "#aaa", position: 0 })
+}));
+
 const mockedGraphQL = linearGraphQL as jest.MockedFunction<typeof linearGraphQL>;
 
 // Silence stderr warnings during tests

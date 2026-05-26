@@ -6,6 +6,7 @@ import { linearGraphQL } from "./client";
 import { getSelfUser } from "./auth";
 import { ISSUE_FIELDS, STATE_BLOCK, ASSIGNEE_BLOCK, TEAM_BLOCK, DELEGATE_BLOCK } from "./fragments";
 import { captionChunks, chunkCommentBody, DEFAULT_MAX_COMMENT_BYTES } from "./chunk";
+import { findSemanticState } from "./states";
 import { CreateIssueInput, Issue, UpdateIssueInput } from "./types";
 
 interface IssueResponse {
@@ -125,6 +126,22 @@ export async function createIssue(input: CreateIssueInput): Promise<Issue> {
     process.stderr.write("Warning: no-orphan warning: creating issue without --project\n");
   }
 
+  // Without an explicit stateId, Linear's API silently lands the issue in Backlog
+  // when no project is set — and Backlog tickets aren't auto-dispatched by the
+  // connector. Resolve the team's "To Do" state and pass it explicitly so the
+  // CLI default matches the help text and the connector picks the issue up.
+  let stateId = input.stateId;
+  if (!stateId && input.teamId) {
+    try {
+      stateId = (await findSemanticState(input.teamId, "todo")).id;
+    } catch (err) {
+      process.stderr.write(
+        `Warning: could not resolve default "To Do" state for team ${input.teamId}; ` +
+        `falling back to Linear's API default. Reason: ${(err as Error).message}\n`
+      );
+    }
+  }
+
   const data = await linearGraphQL<CreateIssueMutationResponse>(
     `
       mutation CreateIssue($input: IssueCreateInput!) {
@@ -149,7 +166,7 @@ export async function createIssue(input: CreateIssueInput): Promise<Issue> {
         delegateId: input.delegateId,
         priority: input.priority,
         parentId: input.parentId,
-        ...(input.stateId ? { stateId: input.stateId } : {})
+        ...(stateId ? { stateId } : {})
       }
     }
   );
