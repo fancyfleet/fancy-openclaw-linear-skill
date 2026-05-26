@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execSync } from "node:child_process";
 
 import { linearGraphQL, LinearApiError } from "./client";
 import { User } from "./types";
@@ -106,7 +107,24 @@ function loadApiKeyFromEnvFile(filePath: string): string | undefined {
       continue;
     }
 
-    const value = rawValue.replace(/^['"]|['"]$/g, "").trim();
+    let value = rawValue.replace(/^['"]|['"]$/g, "").trim();
+    if (value.startsWith("op://")) {
+      const opBin = process.env.OPENCLAW_OP_BIN ?? "/home/linuxbrew/.linuxbrew/bin/op";
+      const opEnvFile = path.join(process.env.HOME ?? "", ".openclaw", "agents", resolveAgentName().name ?? "", "op.env");
+      const opEnv: Record<string, string> = { ...process.env as Record<string, string> };
+      if (fs.existsSync(opEnvFile)) {
+        const opEnvContent = fs.readFileSync(opEnvFile, "utf8");
+        for (const l of opEnvContent.split(/\r?\n/)) {
+          const m = l.match(/^\s*([A-Z0-9_]+)=(.*)\s*$/);
+          if (m) opEnv[m[1]] = m[2].replace(/^['"]|['"]$/g, "").trim();
+        }
+      }
+      try {
+        value = execSync(`${opBin} read "${value}"`, { env: opEnv, encoding: "utf8" }).trim();
+      } catch {
+        continue;
+      }
+    }
     if (value) {
       return value;
     }

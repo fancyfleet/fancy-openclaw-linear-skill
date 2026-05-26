@@ -850,7 +850,7 @@ async function main(): Promise<void> {
     await runCommand(async () => beginWork(id), program.opts<{ human?: boolean }>().human);
   });
 
-  program.command("handoff-work").alias("handoffWork").argument("<id>").argument("<delegate>", "agent display name in quotes, e.g. \"Charles (CTO)\"").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").description("Hand off task to another agent").action(async (id: string, delegate: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+  program.command("handoff-work").alias("handoffWork").argument("<id>").argument("<delegate>", "agent display name in quotes, e.g. \"Charles (CTO)\"").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").option("--force-matt-escalation", "Bypass Matt-escalation refusal guard (use only for legitimate escalations)").description("Hand off task to another agent").action(async (id: string, delegate: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; forceMattEscalation?: boolean }) => {
     await runCommand(async () => handoffWork(id, delegate, options), program.opts<{ human?: boolean }>().human);
   });
 
@@ -858,7 +858,7 @@ async function main(): Promise<void> {
     await runCommand(async () => complete(id, options), program.opts<{ human?: boolean }>().human);
   });
 
-  program.command("needs-human").alias("needsHuman").argument("<id>").argument("<assignee>", "human display name in quotes, e.g. \"Matt Henry\"").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").description("Escalate to human for action").action(async (id: string, assignee: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+  program.command("needs-human").alias("needsHuman").argument("<id>").argument("<assignee>", "human display name in quotes, e.g. \"Matt Henry\"").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").option("--force-matt-escalation", "Bypass Matt-escalation refusal guard (use only for legitimate escalations)").description("Escalate to human for action").action(async (id: string, assignee: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; forceMattEscalation?: boolean }) => {
     await runCommand(async () => needsHuman(id, assignee, options), program.opts<{ human?: boolean }>().human);
   });
 
