@@ -2,7 +2,9 @@ import fs from "node:fs/promises";
 
 import {
   executeTransition,
+  findRecentDuplicate,
   getInlineCommentSafetyWarning,
+  type DuplicateMatch,
   type TransitionArgs,
   type TransitionResult,
 } from "./state-machine";
@@ -56,6 +58,9 @@ export interface SemanticResult {
   delegate: string | null;
   assignee: string | null;
   commentPosted: boolean;
+  /** True when a near-duplicate comment was detected and the post was refused. */
+  duplicateBlocked: boolean;
+  duplicateDetails: { existingCommentId: string; similarity: number; ageSeconds: number } | null;
   commentId: string | null;
   commentUrl: string | null;
   commentCreatedAt: string | null;
@@ -195,7 +200,7 @@ export async function considerWork(
 export async function refuseWork(
   issueId: string,
   delegateName: string,
-  options?: { comment?: string; commentFile?: string }
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
 ): Promise<SemanticResult> {
   return executeTransition("refuseWork", {
     issueId,
@@ -203,6 +208,7 @@ export async function refuseWork(
     commentFile: options?.commentFile,
     userName: delegateName,
     commandName: "refuse-work",
+    forceDuplicate: options?.forceDuplicate,
   }, {
     targetState: "todo",
     commentMode: "optional-with-warning",
@@ -241,7 +247,7 @@ export async function beginWork(
 export async function handoffWork(
   issueId: string,
   delegateName: string,
-  options?: { comment?: string; commentFile?: string }
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
 ): Promise<SemanticResult> {
   return executeTransition("handoffWork", {
     issueId,
@@ -249,6 +255,7 @@ export async function handoffWork(
     commentFile: options?.commentFile,
     userName: delegateName,
     commandName: "handoff-work",
+    forceDuplicate: options?.forceDuplicate,
   }, {
     targetState: "todo",
     commentMode: "optional-with-warning",
@@ -269,18 +276,31 @@ export async function handoffWork(
  */
 export async function complete(
   issueId: string,
-  options?: { comment?: string; commentFile?: string }
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
 ): Promise<SemanticResult> {
   return executeTransition("complete", {
     issueId,
     comment: options?.comment,
     commentFile: options?.commentFile,
+    forceDuplicate: options?.forceDuplicate,
   }, {
     targetState: "done",
     commentMode: "optional",
     clearDelegate: true,
     clearAssignee: true,
   });
+}
+
+export interface NoteResult {
+  issueId: string;
+  commentId: string | null;
+  commentPosted: boolean;
+  duplicateBlocked: boolean;
+  duplicateDetails: { existingCommentId: string; similarity: number; ageSeconds: number } | null;
+  commentUrl: string | null;
+  commentCreatedAt: string | null;
+  commentBodyLength: number | null;
+  bodyFile: string | null;
 }
 
 /**
@@ -292,8 +312,8 @@ export async function complete(
  */
 export async function note(
   issueId: string,
-  options: { comment?: string; commentFile?: string }
-): Promise<{ issueId: string; commentId: string; commentPosted: boolean; commentUrl: string | null; commentCreatedAt: string | null; commentBodyLength: number | null; bodyFile: string | null }> {
+  options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<NoteResult> {
   let body = options.comment?.trim();
   if (options.commentFile) {
     body = (await fs.readFile(options.commentFile, "utf8")).trim();
@@ -307,11 +327,27 @@ export async function note(
     throw new Error("note requires a non-empty comment. Use --comment or --comment-file.");
   }
   const issue = await getIssue(issueId);
+  const dup: DuplicateMatch | null = options.forceDuplicate ? null : await findRecentDuplicate(issue.id, body);
+  if (dup) {
+    return {
+      issueId: issue.identifier,
+      commentId: dup.id,
+      commentPosted: false,
+      duplicateBlocked: true,
+      duplicateDetails: { existingCommentId: dup.id, similarity: dup.similarity, ageSeconds: dup.ageSeconds },
+      commentUrl: null,
+      commentCreatedAt: dup.createdAt,
+      commentBodyLength: Buffer.byteLength(body, "utf8"),
+      bodyFile: null,
+    };
+  }
   const commentResult = await addComment(issue.id, body);
   return {
     issueId: issue.identifier,
     commentId: commentResult.commentId,
     commentPosted: true,
+    duplicateBlocked: false,
+    duplicateDetails: null,
     commentUrl: commentResult.commentUrl,
     commentCreatedAt: commentResult.commentCreatedAt,
     commentBodyLength: commentResult.commentBodyLength,
@@ -331,7 +367,7 @@ export async function note(
 export async function needsHuman(
   issueId: string,
   assigneeName: string,
-  options?: { comment?: string; commentFile?: string }
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
 ): Promise<SemanticResult> {
   return executeTransition("needsHuman", {
     issueId,
@@ -339,6 +375,7 @@ export async function needsHuman(
     commentFile: options?.commentFile,
     userName: assigneeName,
     commandName: "needs-human",
+    forceDuplicate: options?.forceDuplicate,
   }, {
     targetState: "todo",
     commentMode: "optional-with-warning",
@@ -361,12 +398,13 @@ export async function needsHuman(
  */
 export async function parkWork(
   issueId: string,
-  options?: { comment?: string; commentFile?: string }
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
 ): Promise<SemanticResult> {
   return executeTransition("parkWork", {
     issueId,
     comment: options?.comment,
     commentFile: options?.commentFile,
+    forceDuplicate: options?.forceDuplicate,
   }, {
     targetState: "backlog",
     commentMode: "optional",

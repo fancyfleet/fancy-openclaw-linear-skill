@@ -9,10 +9,16 @@ import { ObserveResult, SemanticResult, historyToTimelineEvents } from "./semant
 // --- Comment deduplication ---
 
 /**
- * Dedup window in seconds. If the last comment from the authenticated user
- * has the same body and was posted within this window, skip posting.
+ * Rolling window for near-duplicate comment suppression.
+ * Configurable via LINEAR_COMMENT_DEDUP_WINDOW_SECONDS env var.
  */
-const COMMENT_DEDUP_WINDOW_SECONDS = 60;
+const COMMENT_DEDUP_WINDOW_SECONDS = parseInt(process.env.LINEAR_COMMENT_DEDUP_WINDOW_SECONDS ?? "600", 10);
+
+/**
+ * Minimum word-overlap Jaccard similarity to trigger dedup suppression.
+ * Configurable via LINEAR_COMMENT_SIMILARITY_THRESHOLD env var (0–1).
+ */
+const COMMENT_SIMILARITY_THRESHOLD = parseFloat(process.env.LINEAR_COMMENT_SIMILARITY_THRESHOLD ?? "0.80");
 
 /**
  * Strip HTML/Prosemirror markup for body comparison.
@@ -22,27 +28,66 @@ function stripMarkup(text: string): string {
 }
 
 /**
- * Check whether a comment with the given body would be a duplicate of the
- * most recent comment on the issue. Returns the matching comment if found,
- * null otherwise. Best-effort: failures return null (proceed with post).
+ * Word-overlap Jaccard similarity between two strings.
+ * Returns a value in [0, 1]: 1.0 = identical word sets, 0.0 = disjoint.
  */
+export function computeWordSimilarity(a: string, b: string): number {
+  const tokenize = (s: string) => new Set(
+    stripMarkup(s)
+      .toLowerCase()
+      .split(/\s+/)
+      .map((w) => w.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, ""))
+      .filter(Boolean)
+  );
+  const setA = tokenize(a);
+  const setB = tokenize(b);
+  if (setA.size === 0 && setB.size === 0) return 1.0;
+  if (setA.size === 0 || setB.size === 0) return 0.0;
+  let intersection = 0;
+  for (const word of setA) {
+    if (setB.has(word)) intersection++;
+  }
+  const union = setA.size + setB.size - intersection;
+  return intersection / union;
+}
+
+/**
+ * Check whether a comment with the given body would be a near-duplicate of
+ * any comment by the same author within the dedup window. Returns the most
+ * recent matching comment if found, null otherwise.
+ * Best-effort: failures return null (proceed with post).
+ */
+export interface DuplicateMatch {
+  id: string;
+  createdAt: string;
+  similarity: number;
+  ageSeconds: number;
+}
+
 export async function findRecentDuplicate(
   issueId: string,
   body: string
-): Promise<{ id: string; createdAt: string } | null> {
+): Promise<DuplicateMatch | null> {
   try {
     const self = await getSelfUser();
     const comments = await getComments(issueId, false);
-    // comments are sorted ascending; get the last one
-    const last = comments[comments.length - 1];
-    if (
-      last &&
-      last.user?.id === self.id &&
-      stripMarkup(last.body) === stripMarkup(body) &&
-      last.createdAt &&
-      (Date.now() - new Date(last.createdAt).getTime()) / 1000 < COMMENT_DEDUP_WINDOW_SECONDS
-    ) {
-      return { id: last.id, createdAt: last.createdAt };
+    const cutoffMs = COMMENT_DEDUP_WINDOW_SECONDS * 1000;
+    const now = Date.now();
+    // Scan all recent comments by self within the window (newest first)
+    for (let i = comments.length - 1; i >= 0; i--) {
+      const c = comments[i];
+      if (!c.createdAt || !c.user) continue;
+      const ageMs = now - new Date(c.createdAt).getTime();
+      if (ageMs > cutoffMs) break; // comments are sorted ascending; once too old, stop
+      if (c.user.id !== self.id) continue;
+      const similarity = computeWordSimilarity(c.body, body);
+      if (similarity >= COMMENT_SIMILARITY_THRESHOLD) {
+        const ageSeconds = Math.round(ageMs / 1000);
+        process.stderr.write(
+          `DUPLICATE_COMMENT_BLOCKED: similarity=${(similarity * 100).toFixed(0)}%, age=${ageSeconds}s, existingCommentId=${c.id}\n`
+        );
+        return { id: c.id, createdAt: c.createdAt, similarity, ageSeconds };
+      }
     }
   } catch {
     // Best-effort — if we can't check, proceed with post
@@ -138,6 +183,8 @@ export interface TransitionArgs {
   userName?: string;
   /** Command name for contextual error hints */
   commandName?: string;
+  /** Bypass near-duplicate comment detection and force the post. */
+  forceDuplicate?: boolean;
 }
 
 export interface TransitionResult extends SemanticResult {
@@ -197,20 +244,24 @@ export async function executeTransition(
     throw new Error(`Issue ${issue.identifier} has no team.`);
   }
 
+  const nullResult = (stateName: string): TransitionResult => ({
+    command: commandName,
+    issueId: issue.identifier,
+    state: stateName,
+    delegate: issue.delegate?.name ?? null,
+    assignee: issue.assignee?.name ?? null,
+    commentPosted: false,
+    duplicateBlocked: false,
+    duplicateDetails: null,
+    commentId: null,
+    commentUrl: null,
+    commentCreatedAt: null,
+    commentBodyLength: null,
+    bodyFile: null,
+  });
+
   if (config.noopOnTerminal && isTerminalState(issue.state)) {
-    const result: TransitionResult = {
-      command: commandName,
-      issueId: issue.identifier,
-      state: issue.state?.name ?? "Unknown",
-      delegate: issue.delegate?.name ?? null,
-      assignee: issue.assignee?.name ?? null,
-      commentPosted: false,
-      commentId: null,
-      commentUrl: null,
-      commentCreatedAt: null,
-      commentBodyLength: null,
-      bodyFile: null,
-    };
+    const result = nullResult(issue.state?.name ?? "Unknown");
     if (config.includeContext) {
       result.context = await buildObserveContext(issue);
     }
@@ -224,19 +275,7 @@ export async function executeTransition(
     const isCurrentOwner = currentDelegateId === self.id || currentAssigneeId === self.id;
 
     if (!isCurrentOwner) {
-      const result: TransitionResult = {
-        command: commandName,
-        issueId: issue.identifier,
-        state: issue.state?.name ?? "Unknown",
-        delegate: issue.delegate?.name ?? null,
-        assignee: issue.assignee?.name ?? null,
-        commentPosted: false,
-        commentId: null,
-        commentUrl: null,
-        commentCreatedAt: null,
-        commentBodyLength: null,
-        bodyFile: null,
-      };
+      const result = nullResult(issue.state?.name ?? "Unknown");
       if (config.includeContext) {
         result.context = await buildObserveContext(issue);
       }
@@ -252,19 +291,7 @@ export async function executeTransition(
     const currentStateName = issue.state?.name?.toLowerCase() ?? "";
     const targetStateName = state.name.toLowerCase();
     if (currentStateName === targetStateName) {
-      return {
-        command: commandName,
-        issueId: issue.identifier,
-        state: state.name,
-        delegate: issue.delegate?.name ?? null,
-        assignee: issue.assignee?.name ?? null,
-        commentPosted: false,
-        commentId: null,
-        commentUrl: null,
-        commentCreatedAt: null,
-        commentBodyLength: null,
-        bodyFile: null,
-      };
+      return nullResult(state.name);
     }
   }
 
@@ -315,6 +342,8 @@ export async function executeTransition(
 
   // 7. Post comment (before update if commentFirst)
   let commentPosted = false;
+  let duplicateBlocked = false;
+  let duplicateDetails: SemanticResult["duplicateDetails"] = null;
   let commentId: string | null = null;
   let commentUrl: string | null = null;
   let commentCreatedAt: string | null = null;
@@ -322,14 +351,11 @@ export async function executeTransition(
   let bodyFile: string | null = null;
   if (body && config.commentMode !== "none") {
     if (config.commentFirst) {
-      // Dedup: skip if last comment from self is a recent duplicate
-      const dup = await findRecentDuplicate(args.issueId, body);
+      const dup = args.forceDuplicate ? null : await findRecentDuplicate(args.issueId, body);
       if (dup) {
+        duplicateBlocked = true;
+        duplicateDetails = { existingCommentId: dup.id, similarity: dup.similarity, ageSeconds: dup.ageSeconds };
         commentId = dup.id;
-        commentUrl = null;  // dedup: url not available from getComments
-        commentCreatedAt = dup.createdAt;
-        commentBodyLength = Buffer.byteLength(body, "utf8");
-        commentPosted = true;
       } else {
         const result = await addComment(args.issueId, body);
         commentId = result.commentId;
@@ -352,14 +378,11 @@ export async function executeTransition(
 
   // 10. Post comment (after update if not commentFirst)
   if (body && config.commentMode !== "none" && !config.commentFirst) {
-    // Dedup: skip if last comment from self is a recent duplicate
-    const dup = await findRecentDuplicate(args.issueId, body);
+    const dup = args.forceDuplicate ? null : await findRecentDuplicate(args.issueId, body);
     if (dup) {
+      duplicateBlocked = true;
+      duplicateDetails = { existingCommentId: dup.id, similarity: dup.similarity, ageSeconds: dup.ageSeconds };
       commentId = dup.id;
-      commentUrl = null;  // dedup: url not available from getComments
-      commentCreatedAt = dup.createdAt;
-      commentBodyLength = Buffer.byteLength(body, "utf8");
-      commentPosted = true;
     } else {
       const result = await addComment(args.issueId, body);
       commentId = result.commentId;
@@ -382,6 +405,8 @@ export async function executeTransition(
     assignee: config.clearAssignee ? null
       : assigneeNameResult ?? issue.assignee?.name ?? null,
     commentPosted,
+    duplicateBlocked,
+    duplicateDetails,
     commentId: commentId ?? null,
     commentUrl: commentUrl ?? null,
     commentCreatedAt: commentCreatedAt ?? null,

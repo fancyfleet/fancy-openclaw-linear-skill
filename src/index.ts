@@ -826,7 +826,7 @@ async function main(): Promise<void> {
 
   // --- Semantic commands (kebab-case primary, camelCase aliases for compat) ---
 
-  program.command("note").argument("<id>").option("--comment <msg>", `Comment body. ${INLINE_COMMENT_HELP}`).option("--comment-file <path>", "Read comment from file").description("Post a comment on an issue without changing state, delegate, or assignee").action(async (id: string, options: { comment?: string; commentFile?: string }) => {
+  program.command("note").argument("<id>").option("--comment <msg>", `Comment body. ${INLINE_COMMENT_HELP}`).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").description("Post a comment on an issue without changing state, delegate, or assignee").action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
     await runCommand(async () => note(id, options), program.opts<{ human?: boolean }>().human);
   });
 
@@ -838,7 +838,7 @@ async function main(): Promise<void> {
     await runCommand(async () => considerWork(id, { force: options.force }), program.opts<{ human?: boolean }>().human);
   });
 
-  program.command("refuse-work").alias("refuseWork").argument("<id>").argument("<delegate>", "agent display name in quotes, e.g. \"Astrid (CPO)\"").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").description("Refuse task and delegate to another agent").action(async (id: string, delegate: string, options: { comment?: string; commentFile?: string }) => {
+  program.command("refuse-work").alias("refuseWork").argument("<id>").argument("<delegate>", "agent display name in quotes, e.g. \"Astrid (CPO)\"").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").description("Refuse task and delegate to another agent").action(async (id: string, delegate: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
     await runCommand(async () => refuseWork(id, delegate, options), program.opts<{ human?: boolean }>().human);
   });
 
@@ -846,19 +846,19 @@ async function main(): Promise<void> {
     await runCommand(async () => beginWork(id), program.opts<{ human?: boolean }>().human);
   });
 
-  program.command("handoff-work").alias("handoffWork").argument("<id>").argument("<delegate>", "agent display name in quotes, e.g. \"Charles (CTO)\"").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").description("Hand off task to another agent").action(async (id: string, delegate: string, options: { comment?: string; commentFile?: string }) => {
+  program.command("handoff-work").alias("handoffWork").argument("<id>").argument("<delegate>", "agent display name in quotes, e.g. \"Charles (CTO)\"").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").description("Hand off task to another agent").action(async (id: string, delegate: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
     await runCommand(async () => handoffWork(id, delegate, options), program.opts<{ human?: boolean }>().human);
   });
 
-  program.command("complete").argument("<id>").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").description("Mark task as complete").action(async (id: string, options: { comment?: string; commentFile?: string }) => {
+  program.command("complete").argument("<id>").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").description("Mark task as complete").action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
     await runCommand(async () => complete(id, options), program.opts<{ human?: boolean }>().human);
   });
 
-  program.command("needs-human").alias("needsHuman").argument("<id>").argument("<assignee>", "human display name in quotes, e.g. \"Matt Henry\"").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").description("Escalate to human for action").action(async (id: string, assignee: string, options: { comment?: string; commentFile?: string }) => {
+  program.command("needs-human").alias("needsHuman").argument("<id>").argument("<assignee>", "human display name in quotes, e.g. \"Matt Henry\"").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").description("Escalate to human for action").action(async (id: string, assignee: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
     await runCommand(async () => needsHuman(id, assignee, options), program.opts<{ human?: boolean }>().human);
   });
 
-  program.command("park").alias("parkWork").argument("<id>").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").description("Move ticket to Backlog and clear ownership (intentional deprioritization)").action(async (id: string, options: { comment?: string; commentFile?: string }) => {
+  program.command("park").alias("parkWork").argument("<id>").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").description("Move ticket to Backlog and clear ownership (intentional deprioritization)").action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
     await runCommand(async () => parkWork(id, options), program.opts<{ human?: boolean }>().human);
   });
 
