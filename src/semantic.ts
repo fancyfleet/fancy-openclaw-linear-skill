@@ -8,6 +8,12 @@ import {
   type TransitionArgs,
   type TransitionResult,
 } from "./state-machine";
+import {
+  checkMattEscalation,
+  formatRefusalError,
+  isMattTarget,
+  logRefusal,
+} from "./matt-escalation-guard";
 import { getComments, getIssueHistory } from "./boards";
 import { addComment, getIssue } from "./issues";
 import { IssueHistory } from "./types";
@@ -235,6 +241,35 @@ export async function beginWork(
   });
 }
 
+async function resolveCommentText(options?: { comment?: string; commentFile?: string }): Promise<string> {
+  if (options?.commentFile) {
+    try {
+      return (await fs.readFile(options.commentFile, "utf8")).trim();
+    } catch {
+      return "";
+    }
+  }
+  return options?.comment?.trim() ?? "";
+}
+
+async function guardMattEscalation(
+  issueId: string,
+  targetName: string,
+  options?: { comment?: string; commentFile?: string; forceMattEscalation?: boolean }
+): Promise<void> {
+  if (!isMattTarget(targetName)) return;
+  const text = await resolveCommentText(options);
+  const refusal = checkMattEscalation(text);
+  if (!refusal) return;
+  await logRefusal(issueId, refusal, !!options?.forceMattEscalation);
+  if (!options?.forceMattEscalation) {
+    throw new Error(formatRefusalError(issueId, refusal));
+  }
+  process.stderr.write(
+    `⚠️  --force-matt-escalation used: bypassing refusal for category "${refusal.category}".\n`
+  );
+}
+
 /**
  * linear handoffWork <id> <delegate>
  *
@@ -247,8 +282,9 @@ export async function beginWork(
 export async function handoffWork(
   issueId: string,
   delegateName: string,
-  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; forceMattEscalation?: boolean }
 ): Promise<SemanticResult> {
+  await guardMattEscalation(issueId, delegateName, options);
   return executeTransition("handoffWork", {
     issueId,
     comment: options?.comment,
@@ -367,8 +403,9 @@ export async function note(
 export async function needsHuman(
   issueId: string,
   assigneeName: string,
-  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; forceMattEscalation?: boolean }
 ): Promise<SemanticResult> {
+  await guardMattEscalation(issueId, assigneeName, options);
   return executeTransition("needsHuman", {
     issueId,
     comment: options?.comment,
