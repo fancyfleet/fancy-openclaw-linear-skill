@@ -3,6 +3,7 @@ import path from "node:path";
 import { execSync } from "node:child_process";
 
 import { linearGraphQL, LinearApiError } from "./client";
+import { getLinearSecretPath } from "./paths";
 import { User } from "./types";
 
 interface ViewerResponse {
@@ -47,16 +48,11 @@ export function resolveAgentName(): { name?: string; sources: AgentNameSource[] 
 }
 
 function secretFileCandidates(): string[] {
-  const home = process.env.HOME;
   const { name } = resolveAgentName();
-  const files: string[] = [];
-
-  // Canonical path: workspace/{agentId}/.secrets/linear.env
-  // This is the single source of truth. Tokens should ONLY live here.
-  if (home && name) {
-    files.push(path.join(home, `.openclaw/workspace/${name}/.secrets/linear.env`));
-  }
-  return files;
+  if (!name) return [];
+  // Canonical path is owned by src/paths.ts so the webhook (writer) and the
+  // skill (reader) can never drift again.
+  return [getLinearSecretPath(name)];
 }
 
 /**
