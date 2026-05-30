@@ -125,4 +125,6 @@ export interface UpdateIssueInput {
   projectMilestoneId?: string;
   parentId?: string | null;
   teamId?: string;
+  addedLabelIds?: string[];
+  removedLabelIds?: string[];
 }

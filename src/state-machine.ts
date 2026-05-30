@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import { getSelfUser } from "./auth";
 import { getComments, getIssueHistory } from "./boards";
 import { addComment, findUserByName, resolveUserWithHints, getIssue, updateIssue } from "./issues";
+import { resolveLabelIds } from "./labels";
 import { findSemanticState } from "./states";
 import { ObserveResult, SemanticResult, historyToTimelineEvents } from "./semantic";
 
@@ -173,6 +174,16 @@ export interface StateTransition {
   noopOnTerminal?: boolean;
   /** Refuse to take ownership unless the authenticated user is still the current delegate/assignee. */
   requireSelfAssignedOrDelegated?: boolean;
+  /**
+   * Label names to apply atomically with the state change. Resolved against
+   * the issue's team before any mutation; throws clearly if any are missing.
+   */
+  addLabels?: string[];
+  /**
+   * Label names to strip atomically with the state change if currently
+   * present on the issue. Names absent from the issue are silently skipped.
+   */
+  removeLabelsIfPresent?: string[];
 }
 
 export interface TransitionArgs {
@@ -295,6 +306,20 @@ export async function executeTransition(
     }
   }
 
+  // 3.5. Resolve labels (fail-fast before any mutation)
+  let addedLabelIds: string[] | undefined;
+  let removedLabelIds: string[] | undefined;
+  if (config.addLabels?.length) {
+    addedLabelIds = await resolveLabelIds(teamId, config.addLabels);
+  }
+  if (config.removeLabelsIfPresent?.length) {
+    const present = new Set((issue.labels ?? []).map((l) => l.name.toLowerCase()));
+    const toRemove = config.removeLabelsIfPresent.filter((n) => present.has(n.toLowerCase()));
+    if (toRemove.length) {
+      removedLabelIds = await resolveLabelIds(teamId, toRemove);
+    }
+  }
+
   // 4. Resolve comment
   const body = await resolveComment(args.comment, args.commentFile);
   if (config.commentMode === "required") {
@@ -372,6 +397,8 @@ export async function executeTransition(
   const updatePayload: Record<string, any> = { stateId: state.id };
   if (delegateId !== undefined) updatePayload.delegateId = delegateId;
   if (assigneeId !== undefined) updatePayload.assigneeId = assigneeId;
+  if (addedLabelIds?.length) updatePayload.addedLabelIds = addedLabelIds;
+  if (removedLabelIds?.length) updatePayload.removedLabelIds = removedLabelIds;
 
   // 9. Execute update
   const updatedIssue = await updateIssue(args.issueId, updatePayload);

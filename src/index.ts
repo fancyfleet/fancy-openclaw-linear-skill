@@ -850,7 +850,7 @@ async function main(): Promise<void> {
     await runCommand(async () => beginWork(id), program.opts<{ human?: boolean }>().human);
   });
 
-  program.command("handoff-work").alias("handoffWork").argument("<id>").argument("<delegate>", "agent display name in quotes, e.g. \"Charles (CTO)\"").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").option("--force-matt-escalation", "Bypass Matt-escalation refusal guard (use only for legitimate escalations)").description("Hand off task to another agent").action(async (id: string, delegate: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; forceMattEscalation?: boolean }) => {
+  program.command("handoff-work").alias("handoffWork").argument("<id>").argument("<delegate>", "agent display name in quotes, e.g. \"Charles (CTO)\"").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").option("--force-matt-escalation", "Bypass Matt-escalation refusal guard (use only for legitimate escalations)").option("--review-handoff", "Mark as peer-review handoff: applies gate:agent-review label and prefixes comment with [Review Handoff]").description("Hand off task to another agent").action(async (id: string, delegate: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; forceMattEscalation?: boolean; reviewHandoff?: boolean }) => {
     await runCommand(async () => handoffWork(id, delegate, options), program.opts<{ human?: boolean }>().human);
   });
 

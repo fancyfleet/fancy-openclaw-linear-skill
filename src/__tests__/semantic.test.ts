@@ -47,6 +47,12 @@ jest.mock("../states", () => ({
   findSemanticState: jest.fn(),
 }));
 
+jest.mock("../labels", () => ({
+  resolveLabelIds: jest.fn(),
+}));
+import { resolveLabelIds } from "../labels";
+const mockResolveLabelIds = resolveLabelIds as jest.MockedFunction<typeof resolveLabelIds>;
+
 const mockGetSelfUser = getSelfUser as jest.MockedFunction<typeof getSelfUser>;
 const mockAddComment = addComment as jest.MockedFunction<typeof addComment>;
 const mockFindUserByName = findUserByName as jest.MockedFunction<typeof findUserByName>;
@@ -109,6 +115,21 @@ beforeEach(() => {
     ...baseIssue,
     ...input,
   }));
+  mockResolveLabelIds.mockImplementation(async (_teamId: string, names: string[]) => {
+    const map: Record<string, string> = {
+      "gate:agent-review": "lbl-agent-review",
+      "gate:human-review": "lbl-human-review",
+    };
+    const ids: string[] = [];
+    const missing: string[] = [];
+    for (const n of names) {
+      const id = map[n.toLowerCase()];
+      if (id) ids.push(id);
+      else missing.push(n);
+    }
+    if (missing.length) throw new Error(`Label(s) not found: ${missing.join(", ")}`);
+    return ids;
+  });
 });
 
 describe("observeIssue", () => {
@@ -442,6 +463,73 @@ describe("handoffWork", () => {
     expect(mockAddComment).toHaveBeenCalledTimes(2);
     expect(mockUpdateIssue).toHaveBeenCalledTimes(2);
   });
+
+  describe("--review-handoff", () => {
+    it("applies gate:agent-review label and prepends [Review Handoff] to inline comment", async () => {
+      await handoffWork("AI-100", "Charles (CTO)", {
+        reviewHandoff: true,
+        comment: "Audit complete, ready for review.",
+      });
+      expect(mockAddComment).toHaveBeenCalledWith("AI-100", "[Review Handoff]\n\nAudit complete, ready for review.");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
+        stateId: "state-todo",
+        delegateId: "user-charles",
+        assigneeId: null,
+        addedLabelIds: ["lbl-agent-review"],
+      });
+    });
+
+    it("preserves comment when it already starts with [Review Handoff]", async () => {
+      await handoffWork("AI-100", "Charles (CTO)", {
+        reviewHandoff: true,
+        comment: "[Review Handoff] Already prefixed.",
+      });
+      expect(mockAddComment).toHaveBeenCalledWith("AI-100", "[Review Handoff] Already prefixed.");
+    });
+
+    it("prepends prefix to comment-file body when missing", async () => {
+      jest.spyOn(fs, "readFile").mockResolvedValueOnce("Audit body from file");
+      await handoffWork("AI-100", "Charles (CTO)", {
+        reviewHandoff: true,
+        commentFile: "/tmp/comment.md",
+      });
+      expect(mockAddComment).toHaveBeenCalledWith("AI-100", "[Review Handoff]\n\nAudit body from file");
+    });
+
+    it("succeeds without a comment, still applies label and warns", async () => {
+      const spy = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
+      await handoffWork("AI-100", "Charles (CTO)", { reviewHandoff: true });
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining("no comment provided"));
+      spy.mockRestore();
+      expect(mockAddComment).not.toHaveBeenCalled();
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
+        stateId: "state-todo",
+        delegateId: "user-charles",
+        assigneeId: null,
+        addedLabelIds: ["lbl-agent-review"],
+      });
+    });
+
+    it("throws helpful error before any mutation when label is missing on team", async () => {
+      mockResolveLabelIds.mockImplementation(async (_teamId: string, names: string[]) => {
+        throw new Error(`Label(s) not found: ${names.join(", ")}`);
+      });
+      await expect(
+        handoffWork("AI-100", "Charles (CTO)", { reviewHandoff: true, comment: "..." })
+      ).rejects.toThrow(/--review-handoff requires the "gate:agent-review" label/);
+      expect(mockUpdateIssue).not.toHaveBeenCalled();
+      expect(mockAddComment).not.toHaveBeenCalled();
+    });
+
+    it("does not apply label when --review-handoff is absent", async () => {
+      await handoffWork("AI-100", "Charles (CTO)", { comment: "Plain handoff." });
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
+        stateId: "state-todo",
+        delegateId: "user-charles",
+        assigneeId: null,
+      });
+    });
+  });
 });
 
 describe("complete", () => {
@@ -462,6 +550,76 @@ describe("complete", () => {
     const result = await complete("AI-100");
     expect(mockAddComment).not.toHaveBeenCalled();
     expect(result.commentPosted).toBe(false);
+  });
+
+  describe("auto-unlabel of review gates", () => {
+    it("strips gate:agent-review when present on close", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [{ id: "lbl-agent-review", name: "gate:agent-review" }],
+      });
+      await complete("AI-100");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
+        stateId: "state-done",
+        delegateId: null,
+        assigneeId: null,
+        removedLabelIds: ["lbl-agent-review"],
+      });
+    });
+
+    it("strips gate:human-review when present on close", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [{ id: "lbl-human-review", name: "gate:human-review" }],
+      });
+      await complete("AI-100");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
+        stateId: "state-done",
+        delegateId: null,
+        assigneeId: null,
+        removedLabelIds: ["lbl-human-review"],
+      });
+    });
+
+    it("strips both review labels when both present", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [
+          { id: "lbl-agent-review", name: "gate:agent-review" },
+          { id: "lbl-human-review", name: "gate:human-review" },
+          { id: "lbl-bug", name: "bug" },
+        ],
+      });
+      await complete("AI-100");
+      const call = mockUpdateIssue.mock.calls[0][1] as any;
+      expect(call.stateId).toBe("state-done");
+      expect(call.removedLabelIds).toEqual(expect.arrayContaining(["lbl-agent-review", "lbl-human-review"]));
+      expect(call.removedLabelIds).toHaveLength(2);
+    });
+
+    it("does not touch labels when no review gates are present", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [{ id: "lbl-bug", name: "bug" }],
+      });
+      await complete("AI-100");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
+        stateId: "state-done",
+        delegateId: null,
+        assigneeId: null,
+      });
+      expect(mockResolveLabelIds).not.toHaveBeenCalled();
+    });
+
+    it("does not touch labels when issue has no labels", async () => {
+      await complete("AI-100");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
+        stateId: "state-done",
+        delegateId: null,
+        assigneeId: null,
+      });
+      expect(mockResolveLabelIds).not.toHaveBeenCalled();
+    });
   });
 });
 

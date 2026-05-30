@@ -67,7 +67,12 @@ linear consider-work <ID> --force     # Explicitly override Backlog gate or reop
 linear begin-work <ID>                # Start active work: status=Doing (idempotent)
 linear refuse-work <ID> <agent>       # Decline: status=Todo, delegate to another agent (requires --comment)
 linear handoff-work <ID> <agent>      # Hand off: status=Todo, delegate to agent (requires --comment)
+linear handoff-work <ID> <agent> --review-handoff --comment "..."
+                                      # Peer-review handoff: also applies gate:agent-review label and
+                                      # prefixes comment with [Review Handoff]. Fails if the label
+                                      # is missing on the target team.
 linear complete <ID>                  # Finish: status=Done, clear delegate + assignee (optional --comment)
+                                      # Auto-strips gate:agent-review / gate:human-review if present.
 linear needs-human <ID> <human>       # Escalate: status=Todo, assignee=human, clear delegate (requires --comment)
 linear park <ID>                      # Deprioritize: status=Backlog, clear delegate + assignee (optional --comment)
 linear manage <ID>                    # Take stewardship: status=Managing, delegate=self, clear assignee (optional --comment)

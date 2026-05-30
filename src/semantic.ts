@@ -16,7 +16,12 @@ import {
 } from "./matt-escalation-guard";
 import { getComments, getIssueHistory } from "./boards";
 import { addComment, getIssue, updateIssue } from "./issues";
+import { resolveLabelIds } from "./labels";
 import { IssueHistory } from "./types";
+
+const AGENT_REVIEW_LABEL = "gate:agent-review";
+const HUMAN_REVIEW_LABEL = "gate:human-review";
+const REVIEW_HANDOFF_PREFIX = "[Review Handoff]";
 
 const BACKLOG_CONSIDER_WORK_ERROR = "Ticket is in Backlog — cannot consider work. Use `linear observe-issue` to view, or wait for promotion to To Do.";
 const BACKLOG_FORCE_WARNING = "⚠️  Warning: forced past Backlog gate for consider-work. This ticket was explicitly parked.";
@@ -278,17 +283,57 @@ async function guardMattEscalation(
  * - Post comment (required)
  * - Set delegate to specified agent
  * - Clear assignee
+ *
+ * With reviewHandoff: also applies the gate:agent-review label atomically
+ * and prefixes the comment with `[Review Handoff]` if not already present.
+ * Fails before any mutation if the label is missing on the target team.
  */
 export async function handoffWork(
   issueId: string,
   delegateName: string,
-  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; forceMattEscalation?: boolean }
+  options?: {
+    comment?: string;
+    commentFile?: string;
+    forceDuplicate?: boolean;
+    forceMattEscalation?: boolean;
+    reviewHandoff?: boolean;
+  }
 ): Promise<SemanticResult> {
   await guardMattEscalation(issueId, delegateName, options);
+
+  let comment = options?.comment;
+  let commentFile = options?.commentFile;
+  if (options?.reviewHandoff) {
+    if (commentFile) {
+      const raw = (await fs.readFile(commentFile, "utf8")).trim();
+      comment = raw.startsWith(REVIEW_HANDOFF_PREFIX) ? raw : `${REVIEW_HANDOFF_PREFIX}\n\n${raw}`;
+      commentFile = undefined;
+    } else if (comment) {
+      const trimmed = comment.trim();
+      if (!trimmed.startsWith(REVIEW_HANDOFF_PREFIX)) {
+        comment = `${REVIEW_HANDOFF_PREFIX}\n\n${trimmed}`;
+      }
+    }
+
+    const issue = await getIssue(issueId);
+    const teamId = issue.team?.id;
+    if (!teamId) {
+      throw new Error(`Issue ${issue.identifier} has no team — cannot apply ${AGENT_REVIEW_LABEL}.`);
+    }
+    try {
+      await resolveLabelIds(teamId, [AGENT_REVIEW_LABEL]);
+    } catch {
+      throw new Error(
+        `--review-handoff requires the "${AGENT_REVIEW_LABEL}" label on team ${issue.team?.key ?? teamId}, but it doesn't exist. ` +
+        `Create it via the GraphQL issueLabelCreate mutation (see agent-review-handoff-convention.md for the recipe), then re-run.`
+      );
+    }
+  }
+
   return executeTransition("handoffWork", {
     issueId,
-    comment: options?.comment,
-    commentFile: options?.commentFile,
+    comment,
+    commentFile,
     userName: delegateName,
     commandName: "handoff-work",
     forceDuplicate: options?.forceDuplicate,
@@ -298,6 +343,7 @@ export async function handoffWork(
     delegateName: (args) => args.userName,
     clearAssignee: true,
     commentFirst: true,
+    addLabels: options?.reviewHandoff ? [AGENT_REVIEW_LABEL] : undefined,
   });
 }
 
@@ -309,6 +355,7 @@ export async function handoffWork(
  * - Post comment (optional)
  * - Clear delegate
  * - Clear assignee
+ * - Strip review-gate labels (gate:agent-review, gate:human-review) if present
  */
 export async function complete(
   issueId: string,
@@ -324,6 +371,7 @@ export async function complete(
     commentMode: "optional",
     clearDelegate: true,
     clearAssignee: true,
+    removeLabelsIfPresent: [AGENT_REVIEW_LABEL, HUMAN_REVIEW_LABEL],
   });
 }
 
