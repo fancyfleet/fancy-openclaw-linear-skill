@@ -170,12 +170,24 @@ Accepted units: `s`, `m`, `h`, `d`. Bare numbers default to minutes.
 2. Look for stalled children — anything in Backlog that should be To Do?
    Anything assigned to the wrong person?
 3. Verify assignee + delegate on each child match the current owner.
-4. If something material changed, post a one-line note on the parent.
-5. If nothing changed and the situation is genuinely the same, no comment.
+4. If something material changed, post a delta-only note on the parent: what
+   changed since the last stewardship comment, and where the current
+   blocker/owner is now.
+5. Do not restate unchanged child status, old blockers, or the whole project
+   summary. If the only update would be a recap, post nothing.
 
 Move tickets out of Managing when they're complete (`complete`), abandoned
 (`needs-human` / `refuse-work`), or actively workable (`begin-work`). Do not
 let Managing become a graveyard.
+
+**Good stewardship comment shape:**
+
+> Since last check: FCY-516 merged and is Done. Current blocker is FCY-514,
+> with Noah actively implementing; no action needed on the parent.
+
+Avoid serial recap comments that list every child and repeat unchanged blockers
+from prior updates. The reader should learn only the new state transition and
+the current bottleneck.
 
 ### Comment Verification
 
