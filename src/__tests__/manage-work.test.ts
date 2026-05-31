@@ -115,4 +115,47 @@ describe("manageWork", () => {
     const descriptionUpdates = mockUpdateIssue.mock.calls.filter((c) => "description" in (c[1] ?? {}));
     expect(descriptionUpdates).toHaveLength(0);
   });
+
+  it("repairs delegate when already in Managing but delegate is null (AI-1263)", async () => {
+    mockGetIssue.mockResolvedValue({
+      ...baseIssue,
+      state: managingState,
+      assignee: null,
+      delegate: null,
+    } as never);
+    const result = await manageWork("AI-100");
+    expect(mockUpdateIssue).toHaveBeenCalledWith(
+      "AI-100",
+      expect.objectContaining({ delegateId: "user-charles", assigneeId: null }),
+    );
+    expect(result.delegate).toBe("Charles (CTO)");
+  });
+
+  it("clears assignee when already in Managing but assignee is set", async () => {
+    mockGetIssue.mockResolvedValue({
+      ...baseIssue,
+      state: managingState,
+      assignee: { id: "user-matt", name: "Matt Henry" },
+      delegate: { id: "user-charles", name: "Charles (CTO)" },
+    } as never);
+    await manageWork("AI-100");
+    expect(mockUpdateIssue).toHaveBeenCalledWith(
+      "AI-100",
+      expect.objectContaining({ assigneeId: null }),
+    );
+  });
+
+  it("is a no-op when already in Managing with delegate=self and no assignee", async () => {
+    mockGetIssue.mockResolvedValue({
+      ...baseIssue,
+      state: managingState,
+      assignee: null,
+      delegate: { id: "user-charles", name: "Charles (CTO)" },
+    } as never);
+    const result = await manageWork("AI-100");
+    const stateUpdates = mockUpdateIssue.mock.calls.filter((c) => "stateId" in (c[1] ?? {}));
+    expect(stateUpdates).toHaveLength(0);
+    expect(result.state).toBe("Managing");
+    expect(result.delegate).toBe("Charles (CTO)");
+  });
 });

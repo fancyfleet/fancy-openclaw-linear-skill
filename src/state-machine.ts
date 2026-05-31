@@ -208,6 +208,46 @@ function isTerminalState(state?: { name?: string | null; type?: string | null } 
   return type === "completed" || type === "canceled" || name === "done" || name === "canceled" || name === "cancelled";
 }
 
+/**
+ * Whether the issue's current delegate/assignee already match what the
+ * transition config would set. Used by the same-state idempotency guard so a
+ * ticket that is already in the target state but has the wrong owner (e.g. a
+ * Managing ticket with delegate=null) still gets repaired instead of skipped.
+ */
+async function ownershipSatisfied(
+  issue: Awaited<ReturnType<typeof getIssue>>,
+  config: StateTransition,
+  args: TransitionArgs
+): Promise<boolean> {
+  const currentDelegateId = issue.delegate?.id ?? null;
+  const currentAssigneeId = issue.assignee?.id ?? null;
+
+  if (config.delegateToSelf) {
+    const self = await getSelfUser();
+    if (currentDelegateId !== self.id) return false;
+  } else if (config.clearDelegate) {
+    if (currentDelegateId !== null) return false;
+  } else if (config.delegateName) {
+    const name = typeof config.delegateName === "function" ? config.delegateName(args) : config.delegateName;
+    if (name) {
+      const user = await resolveUserWithHints(name, args.commandName);
+      if (currentDelegateId !== user.id) return false;
+    }
+  }
+
+  if (config.clearAssignee) {
+    if (currentAssigneeId !== null) return false;
+  } else if (config.assigneeName) {
+    const name = typeof config.assigneeName === "function" ? config.assigneeName(args) : config.assigneeName;
+    if (name) {
+      const user = await resolveUserWithHints(name, args.commandName);
+      if (currentAssigneeId !== user.id) return false;
+    }
+  }
+
+  return true;
+}
+
 async function buildObserveContext(issue: Awaited<ReturnType<typeof getIssue>>): Promise<ObserveResult> {
   const [comments, history] = await Promise.all([
     getComments(issue.id),
@@ -297,11 +337,14 @@ export async function executeTransition(
   // 2. Resolve target state
   const state = await findSemanticState(teamId, config.targetState);
 
-  // 3. Idempotency check — skip update if already in target state
+  // 3. Idempotency check — skip the update only if already in the target state
+  //    AND the command's ownership invariants (delegate/assignee) already hold.
+  //    A same-state ticket with the wrong delegate/assignee still needs repair,
+  //    so we fall through to the update in that case.
   if (config.skipIfSameState) {
     const currentStateName = issue.state?.name?.toLowerCase() ?? "";
     const targetStateName = state.name.toLowerCase();
-    if (currentStateName === targetStateName) {
+    if (currentStateName === targetStateName && await ownershipSatisfied(issue, config, args)) {
       return nullResult(state.name);
     }
   }
