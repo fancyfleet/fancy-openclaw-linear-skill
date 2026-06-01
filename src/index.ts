@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { checkAuth, linearDoctor } from "./auth";
 import { getMyBlocked } from "./blocked";
 import { getBoard, getRecentlyDone, getReviewQueue, getStalled } from "./boards";
-import { considerWork, refuseWork, beginWork, handoffWork, complete, needsHuman, observeIssue, note, parkWork, manageWork } from "./semantic";
+import { considerWork, refuseWork, beginWork, handoffWork, complete, needsHuman, observeIssue, note, undelegate, parkWork, manageWork } from "./semantic";
 import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, updateIssue, verifyComment } from "./issues";
 import { attachIssueToMilestone, attachIssueToProject, attachIssueToProjectById, createMilestone, createProject, editProject, findProjectByName, getProjectDetail, getProjectIssues, listMilestones, listProjects } from "./projects";
 import { createBlockingRelation, listRelations, removeBlockingRelation, removeParentIssue, setParentIssue } from "./relations";
@@ -832,6 +832,10 @@ async function main(): Promise<void> {
 
   program.command("note").argument("<id>").option("--comment <msg>", `Comment body. ${INLINE_COMMENT_HELP}`).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").description("Post a comment on an issue without changing state, delegate, or assignee").action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
     await runCommand(async () => note(id, options), program.opts<{ human?: boolean }>().human);
+  });
+
+  program.command("undelegate").argument("<id>").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").description("Clear delegate and assignee without changing state").action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+    await runCommand(async () => undelegate(id, options), program.opts<{ human?: boolean }>().human);
   });
 
   program.command("observe-issue").alias("observeIssue").argument("<id>").option("--all", "Include all comments instead of last 10").option("--since <timestamp>", "Only return comments created at or after this ISO timestamp").description("Read-only observation of an issue (no ownership change)").action(async (id: string, options: { all?: boolean; since?: string }) => {

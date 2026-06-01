@@ -77,6 +77,7 @@ linear needs-human <ID> <human>       # Escalate: status=Todo, assignee=human, c
 linear park <ID>                      # Deprioritize: status=Backlog, clear delegate + assignee (optional --comment)
 linear manage <ID>                    # Take stewardship: status=Managing, delegate=self, clear assignee (optional --comment)
 linear manage <ID> --interval 2h      # Same, but set per-ticket wake cadence (m/h/d). Default cadence is 30m.
+linear undelegate <ID>                # Clear delegate + assignee without changing status (optional --comment)
 linear note <ID> --comment "<msg>"    # Post comment only: no state, delegate, or assignee change
                                       # Works on any status (including Done/Canceled)
 ```

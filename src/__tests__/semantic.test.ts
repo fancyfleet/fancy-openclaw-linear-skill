@@ -12,6 +12,7 @@ import {
   complete,
   needsHuman,
   note,
+  undelegate,
   historyToTimelineEvents,
 } from "../semantic";
 import { IssueHistory } from "../types";
@@ -703,6 +704,33 @@ describe("note", () => {
 
   it("throws when comment is whitespace-only", async () => {
     await expect(note("AI-100", { comment: "   " })).rejects.toThrow("non-empty comment");
+  });
+});
+
+describe("undelegate", () => {
+  it("clears delegate and assignee without changing state", async () => {
+    mockGetIssue.mockResolvedValue({
+      ...baseIssue,
+      delegate: { id: "user-wikiwizard", name: "WikiWizard" },
+      assignee: { id: "user-matt", name: "Matt Henry" },
+    });
+    mockUpdateIssue.mockResolvedValue({
+      ...baseIssue,
+      delegate: null,
+      assignee: null,
+    });
+
+    const result = await undelegate("AI-100", { comment: "Releasing this for pickup." });
+
+    expect(mockAddComment).toHaveBeenCalledWith("issue-1", "Releasing this for pickup.");
+    expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
+      delegateId: null,
+      assigneeId: null,
+    });
+    expect(mockFindSemanticState).not.toHaveBeenCalled();
+    expect(result.state).toBe("Todo");
+    expect(result.delegate).toBeNull();
+    expect(result.assignee).toBeNull();
   });
 });
 

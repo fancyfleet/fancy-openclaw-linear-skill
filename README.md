@@ -117,6 +117,7 @@ You should see your Linear user name and email printed. If not, see `references/
 | `linear complete <id> [--comment <msg>] [--comment-file <path>]` | Mark task as Done, clear delegate. |
 | `linear needs-human <id> <assignee> [--comment <msg>] [--comment-file <path>]` | Escalate to human. Sets assignee, clears delegate. |
 | `linear refuse-work <id> <delegate> [--comment <msg>] [--comment-file <path>]` | Refuse task and delegate to another agent. |
+| `linear undelegate <id> [--comment <msg>] [--comment-file <path>]` | Clear delegate and assignee without changing status. |
 | `linear observe-issue <id> [--all]` | Read-only observation of an issue. No ownership change. `--all` includes all comments. |
 
 ### Issue Management

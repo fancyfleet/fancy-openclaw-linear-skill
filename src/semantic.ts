@@ -440,6 +440,78 @@ export async function note(
 }
 
 /**
+ * linear undelegate <id>
+ *
+ * Clear agent/human ownership without changing workflow state.
+ * Use when work should no longer be owned by the current delegate, but the
+ * ticket should stay exactly where it is on the board.
+ * - Preserve current status
+ * - Clear delegate
+ * - Clear assignee
+ * - Post comment (optional)
+ */
+export async function undelegate(
+  issueId: string,
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<SemanticResult> {
+  const issue = await getIssue(issueId);
+  let body = options?.comment?.trim();
+  if (options?.commentFile) {
+    body = (await fs.readFile(options.commentFile, "utf8")).trim();
+  } else if (body) {
+    const warning = getInlineCommentSafetyWarning(body);
+    if (warning) {
+      process.stderr.write(`${warning}\n`);
+    }
+  }
+
+  let commentPosted = false;
+  let duplicateBlocked = false;
+  let duplicateDetails: SemanticResult["duplicateDetails"] = null;
+  let commentId: string | null = null;
+  let commentUrl: string | null = null;
+  let commentCreatedAt: string | null = null;
+  let commentBodyLength: number | null = null;
+  let bodyFile: string | null = null;
+
+  if (body) {
+    const dup = options?.forceDuplicate ? null : await findRecentDuplicate(issue.id, body);
+    if (dup) {
+      duplicateBlocked = true;
+      duplicateDetails = { existingCommentId: dup.id, similarity: dup.similarity, ageSeconds: dup.ageSeconds };
+      commentId = dup.id;
+      commentCreatedAt = dup.createdAt;
+      commentBodyLength = Buffer.byteLength(body, "utf8");
+    } else {
+      const result = await addComment(issue.id, body);
+      commentPosted = true;
+      commentId = result.commentId;
+      commentUrl = result.commentUrl;
+      commentCreatedAt = result.commentCreatedAt;
+      commentBodyLength = result.commentBodyLength;
+      bodyFile = result.bodyFile ?? null;
+    }
+  }
+
+  const updatedIssue = await updateIssue(issueId, { delegateId: null, assigneeId: null });
+  return {
+    command: "undelegate",
+    issueId: issue.identifier,
+    state: updatedIssue.state?.name ?? issue.state?.name ?? "Unknown",
+    delegate: null,
+    assignee: null,
+    commentPosted,
+    duplicateBlocked,
+    duplicateDetails,
+    commentId,
+    commentUrl,
+    commentCreatedAt,
+    commentBodyLength,
+    bodyFile,
+  };
+}
+
+/**
  * linear needsHuman <id> <assignee>
  *
  * Human action is required. Idempotent — safe to call multiple times.
