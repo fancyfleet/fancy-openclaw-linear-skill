@@ -13,6 +13,7 @@ import { createBlockingRelation, listRelations, removeBlockingRelation, removePa
 import { findSemanticState, findStateByName, getWorkflowStates } from "./states";
 import { listTeams, resolveTeamId } from "./teams";
 import { uploadFile } from "./upload";
+import { fetchImage } from "./fetch-image";
 import { deleteIssue, deleteComment } from "./delete";
 import { listLabels, addLabels, removeLabels } from "./labels";
 import { searchIssues } from "./search";
@@ -656,6 +657,14 @@ async function main(): Promise<void> {
   program.command("upload").argument("<file>").option("--comment <issueId>").action(async (file: string, options: { comment?: string }) => {
     await runCommand(async () => uploadFile(file, options.comment), program.opts<{ human?: boolean }>().human);
   });
+
+  program.command("fetch-image")
+    .argument("<url>", "A uploads.linear.app / *.linear.app image URL")
+    .option("-o, --out <path>", "Write the image to this path (default: a temp file)")
+    .description("Download a Linear image attachment using the agent's API token (handles auth + redirect), then print the saved path")
+    .action(async (url: string, options: { out?: string }) => {
+      await runCommand(async () => fetchImage(url, options.out), program.opts<{ human?: boolean }>().human);
+    });
 
   // --- New commands ---
 

@@ -235,6 +235,24 @@ linear create <TEAM> "<title>" --delegate <name|uuid>  # Delegate on create
 linear edit <ID> --title/--desc      # Edit title/description
 ```
 
+## Reading Image / File Attachments
+
+Linear `uploads.linear.app` URLs (screenshots, mockups, PDFs pasted into a description or comment) are **not public** and do **not** need a browser session cookie — a common misconception. They are served behind the **same Linear API token** the CLI already uses for GraphQL. Two gotchas trip people up:
+
+1. The URL returns **401** with no `Authorization` header.
+2. It **302-redirects** to a signed CDN URL, so a fetch that doesn't follow redirects fails.
+
+Don't hand-roll the curl. Use the command — it attaches the agent's token and follows the redirect, then prints the local path so you can read the file:
+
+```
+linear fetch-image <uploads.linear.app URL>            # saves to a temp file, prints the path
+linear fetch-image <url> -o /tmp/shot.png              # explicit output path
+```
+
+Output is JSON: `{ url, savedPath, contentType, bytes }`. The extension is derived from the response `Content-Type` (handles png/jpg/gif/webp/svg/pdf). After fetching, read the `savedPath` with your normal file/image tooling.
+
+**Safety:** the command only accepts `linear.app` / `*.linear.app` hosts. It refuses any other host so the Linear token can never be sent to (and leaked at) an arbitrary URL.
+
 ## Creating Issues in the Right Project
 
 Agents often get this wrong, so treat project selection as part of the create operation — not a cleanup step.

@@ -135,6 +135,7 @@ You should see your Linear user name and email printed. If not, see `references/
 | `linear delete-comment <commentId>` | Delete a comment |
 | `linear verify-comment <commentId>` | Verify a comment exists using strongly-consistent node lookup |
 | `linear upload <file> --comment <issueId>` | Upload a file attachment, optionally linking to a comment |
+| `linear fetch-image <url> [-o <path>]` | Download a Linear image/file attachment (`uploads.linear.app`) using the agent's API token — handles auth + redirect, prints the saved path. Restricted to `*.linear.app` hosts. |
 
 ### Labels
 
