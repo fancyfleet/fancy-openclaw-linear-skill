@@ -5,6 +5,30 @@ import { debugDump, isDebugMode } from "./debug";
 
 const LINEAR_API_URL = "https://api.linear.app/graphql";
 
+/**
+ * Returns the GraphQL endpoint to use. When LINEAR_PROXY_URL is set, all
+ * requests route through the connector proxy (Phase 0B, design.md §4.6)
+ * instead of hitting api.linear.app directly. The proxy is transparent in
+ * v0; future phases add per-step instruction injection and command validation.
+ */
+function resolveApiUrl(): string {
+  return process.env.LINEAR_PROXY_URL ?? LINEAR_API_URL;
+}
+
+/**
+ * Extra headers to attach when routing through the proxy so it can identify
+ * the calling agent for logging and (eventually) enforcement.
+ */
+function proxyHeaders(): Record<string, string> {
+  const proxyUrl = process.env.LINEAR_PROXY_URL;
+  if (!proxyUrl) return {};
+  const agentId =
+    process.env.OPENCLAW_MCP_AGENT_ID ??
+    process.env.OPENCLAW_AGENT_NAME ??
+    "unknown";
+  return { "X-Openclaw-Agent": agentId };
+}
+
 export interface GraphQLErrorDetail {
   message: string;
   path?: (string | number)[];
@@ -90,15 +114,17 @@ export async function linearGraphQL<T>(
   variables?: Record<string, unknown>
 ): Promise<T> {
   const apiKey = ensureApiKey();
+  const apiUrl = resolveApiUrl();
   let response;
   try {
     response = await axios.post<LinearGraphQLResponse<T>>(
-      LINEAR_API_URL,
+      apiUrl,
       { query, variables },
       {
         headers: {
           Authorization: apiKey,
           "Content-Type": "application/json",
+          ...proxyHeaders(),
         },
       }
     );
