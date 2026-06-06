@@ -919,7 +919,7 @@ async function main(): Promise<void> {
     });
 
   program.command("request-changes").argument("<id>")
-    .requiredOption("--comment <msg>", "Feedback comment (required). " + INLINE_COMMENT_HELP)
+    .option("--comment <msg>", "Feedback comment (required). " + INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file (overrides --comment)")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
     .description("Request changes during code review (dev-impl: code-review → implementation). Requires --comment.")
@@ -937,7 +937,7 @@ async function main(): Promise<void> {
     });
 
   program.command("reject").argument("<id>")
-    .requiredOption("--comment <msg>", "Rejection reason (required). " + INLINE_COMMENT_HELP)
+    .option("--comment <msg>", "Rejection reason (required). " + INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file (overrides --comment)")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
     .description("Reject during deployment (dev-impl: deployment → implementation). Requires --comment.")

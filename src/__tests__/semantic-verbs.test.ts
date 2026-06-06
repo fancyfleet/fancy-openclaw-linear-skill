@@ -364,6 +364,27 @@ describe("dev-impl semantic verbs", () => {
     });
   });
 
+  describe("targetState guard — every verb targets a real SEMANTIC_STATE_MAP key", () => {
+    const VERB_TARGET_STATES: Record<string, string> = {
+      accept: "doing",
+      submit: "thinking",
+      approve: "doing",
+      requestChanges: "doing",
+      deploy: "done",
+      reject: "doing",
+      escape: "backlog",
+      demote: "backlog",
+    };
+
+    // This test would have caught the b65f829 regression where submit/approve
+    // targeted "review"/"deploying" — keys absent from SEMANTIC_STATE_MAP.
+    for (const [verb, targetState] of Object.entries(VERB_TARGET_STATES)) {
+      it(`${verb} targets "${targetState}" which exists in SEMANTIC_STATE_MAP`, () => {
+        expect(Object.keys(SEMANTIC_STATE_MAP)).toContain(targetState);
+      });
+    }
+  });
+
   describe("proxy intent header", () => {
     it("clears intent after success (no state pollution between calls)", async () => {
       await accept("AI-200");
