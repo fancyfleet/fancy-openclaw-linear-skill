@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { checkAuth, linearDoctor } from "./auth";
 import { getMyBlocked } from "./blocked";
 import { getBoard, getRecentlyDone, getReviewQueue, getStalled } from "./boards";
-import { considerWork, refuseWork, beginWork, handoffWork, complete, needsHuman, observeIssue, note, undelegate, parkWork, manageWork } from "./semantic";
+import { considerWork, refuseWork, beginWork, handoffWork, complete, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, submit, approve, requestChanges, deploy, reject, escape, demote } from "./semantic";
 import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, updateIssue, verifyComment } from "./issues";
 import { attachIssueToMilestone, attachIssueToProject, attachIssueToProjectById, createMilestone, createProject, editProject, findProjectByName, getProjectDetail, getProjectIssues, listMilestones, listProjects } from "./projects";
 import { createBlockingRelation, listRelations, removeBlockingRelation, removeParentIssue, setParentIssue } from "./relations";
@@ -887,6 +887,80 @@ async function main(): Promise<void> {
     .description("Take stewardship of a ticket (Managing state). Connector wakes you on a cadence to re-review.")
     .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; interval?: string }) => {
       await runCommand(async () => manageWork(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  // --- Dev-impl workflow semantic verbs (AI-1362) ---
+
+  program.command("accept").argument("<id>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Accept a ticket from intake into implementation (dev-impl: intake → implementation)")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => accept(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("submit").argument("<id>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Submit implementation for code review (dev-impl: implementation → code-review)")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => submit(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("approve").argument("<id>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Approve after code review (dev-impl: code-review → deployment)")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => approve(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("request-changes").argument("<id>")
+    .requiredOption("--comment <msg>", "Feedback comment (required). " + INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file (overrides --comment)")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Request changes during code review (dev-impl: code-review → implementation). Requires --comment.")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => requestChanges(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("deploy").argument("<id>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Deploy after approval (dev-impl: deployment → done)")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => deploy(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("reject").argument("<id>")
+    .requiredOption("--comment <msg>", "Rejection reason (required). " + INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file (overrides --comment)")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Reject during deployment (dev-impl: deployment → implementation). Requires --comment.")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => reject(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("escape").argument("<id>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Break-glass: escape the ticket out of the workflow (dev-impl: any → escape terminal)")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => escape(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("demote").argument("<id>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Demote a ticket out of dev-impl workflow (dev-impl: intake → ad-hoc)")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => demote(id, options), program.opts<{ human?: boolean }>().human);
     });
 
   program.command("managing")
