@@ -16,8 +16,24 @@ function resolveApiUrl(): string {
 }
 
 /**
+ * Current semantic intent, set by the active semantic command before it issues
+ * any GraphQL calls. The proxy reads this to enforce per-command rules
+ * (Phase 2, design.md §11). Cleared by the command after completion.
+ */
+let _proxyIntent: string | undefined;
+
+/**
+ * Set the active semantic intent for the duration of a command.
+ * Pass `undefined` to clear. Only affects proxied requests;
+ * no-op when LINEAR_PROXY_URL is unset.
+ */
+export function setProxyIntent(intent: string | undefined): void {
+  _proxyIntent = intent;
+}
+
+/**
  * Extra headers to attach when routing through the proxy so it can identify
- * the calling agent for logging and (eventually) enforcement.
+ * the calling agent for logging and enforcement (Phase 2, design.md §11).
  */
 function proxyHeaders(): Record<string, string> {
   const proxyUrl = process.env.LINEAR_PROXY_URL;
@@ -26,7 +42,9 @@ function proxyHeaders(): Record<string, string> {
     process.env.OPENCLAW_MCP_AGENT_ID ??
     process.env.OPENCLAW_AGENT_NAME ??
     "unknown";
-  return { "X-Openclaw-Agent": agentId };
+  const headers: Record<string, string> = { "X-Openclaw-Agent": agentId };
+  if (_proxyIntent) headers["X-Openclaw-Linear-Intent"] = _proxyIntent;
+  return headers;
 }
 
 export interface GraphQLErrorDetail {

@@ -14,6 +14,7 @@ import {
   isMattTarget,
   logRefusal,
 } from "./matt-escalation-guard";
+import { setProxyIntent } from "./client";
 import { getComments, getIssueHistory } from "./boards";
 import { addComment, getIssue, updateIssue } from "./issues";
 import { resolveLabelIds } from "./labels";
@@ -526,20 +527,27 @@ export async function needsHuman(
   options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; forceMattEscalation?: boolean }
 ): Promise<SemanticResult> {
   await guardMattEscalation(issueId, assigneeName, options);
-  return executeTransition("needsHuman", {
-    issueId,
-    comment: options?.comment,
-    commentFile: options?.commentFile,
-    userName: assigneeName,
-    commandName: "needs-human",
-    forceDuplicate: options?.forceDuplicate,
-  }, {
-    targetState: "todo",
-    commentMode: "optional-with-warning",
-    clearDelegate: true,
-    assigneeName: (args) => args.userName,
-    commentFirst: true,
-  });
+  // Signal intent to the proxy so it can enforce steward-only escalation on
+  // workflow tickets (Phase 2 / slice 1, design.md §11, §13).
+  setProxyIntent("needs-human");
+  try {
+    return await executeTransition("needsHuman", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      userName: assigneeName,
+      commandName: "needs-human",
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      targetState: "todo",
+      commentMode: "optional-with-warning",
+      clearDelegate: true,
+      assigneeName: (args) => args.userName,
+      commentFirst: true,
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
 }
 
 /**
