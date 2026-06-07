@@ -240,8 +240,12 @@ describe("considerWork", () => {
   });
 
   it("is idempotent — no state update when already In Progress", async () => {
+    // A ticket that's already had consider-work run has: delegate=self, assignee=null, state=thinking.
+    // The skipIfSameState + ownershipSatisfied guard should no-op without calling updateIssue.
     mockGetIssue.mockResolvedValue({
       ...baseIssue,
+      delegate: { id: "user-igor", name: "Igor (Back End Dev)" },
+      assignee: null,
       state: { id: "state-thinking", name: "In Progress", type: "started" },
     });
     const result = await considerWork("AI-100");
@@ -334,6 +338,88 @@ describe("considerWork", () => {
     });
     expect(result.state).toBe("In Progress");
     stderrSpy.mockRestore();
+  });
+
+  // AI-1394 regression: concurrent-grab via delegate+assignee overlap
+  it("no-ops when self is assignee but NOT delegate (requireSelfDelegated guard)", async () => {
+    // Igor is assignee but Charles is delegate — Igor should not claim the ticket.
+    // Previously requireSelfAssignedOrDelegated allowed this, enabling concurrent-grab.
+    mockGetIssue.mockResolvedValue({
+      ...baseIssue,
+      delegate: { id: "user-charles", name: "Charles (CTO)" },
+      assignee: { id: "user-igor", name: "Igor (Back End Dev)" },
+    });
+
+    const result = await considerWork("AI-100");
+
+    expect(mockUpdateIssue).not.toHaveBeenCalled();
+    expect(mockAddComment).not.toHaveBeenCalled();
+    expect(result.state).toBe("Todo");
+    expect(result.context).toBeDefined();
+  });
+
+  // AI-1394 regression: stale consider-work wake reverting an advanced state
+  it("no-ops when current state position is past the thinking state (advancement guard)", async () => {
+    // Simulates the race: Charles ran `linear approve` (Doing, position=3) then Igor's
+    // stale consider-work wake fires. The position guard must prevent reverting to Thinking.
+    const doingStateWithPosition = { id: "state-doing", name: "Doing", type: "started", position: 3 };
+    const thinkingStateWithPosition = { id: "state-thinking", name: "Thinking", type: "started", position: 1 };
+    mockGetIssue.mockResolvedValue({
+      ...baseIssue,
+      state: doingStateWithPosition,
+      delegate: { id: "user-igor", name: "Igor (Back End Dev)" },
+      assignee: null,
+    });
+    mockFindSemanticState.mockImplementation(async (_teamId: string, semantic: string) => {
+      if (semantic === "thinking") return thinkingStateWithPosition;
+      return doingStateWithPosition;
+    });
+
+    const result = await considerWork("AI-100");
+
+    expect(mockUpdateIssue).not.toHaveBeenCalled();
+    expect(mockAddComment).not.toHaveBeenCalled();
+    // Returns the current (advanced) state name, not "Thinking"
+    expect(result.state).toBe("Doing");
+    expect(result.context).toBeDefined();
+  });
+
+  it("proceeds when current state position is before the target (todo→thinking is not 'ahead')", async () => {
+    const thinkingStateWithPosition = { id: "state-thinking", name: "Thinking", type: "started", position: 1 };
+    mockGetIssue.mockResolvedValue({
+      ...baseIssue,
+      state: { id: "state-todo", name: "Todo", type: "unstarted", position: 0 },
+      delegate: { id: "user-igor", name: "Igor (Back End Dev)" },
+      assignee: null,
+    });
+    mockFindSemanticState.mockImplementation(async () => thinkingStateWithPosition);
+
+    const result = await considerWork("AI-100");
+
+    expect(mockUpdateIssue).toHaveBeenCalled();
+    expect(result.state).toBe("Thinking");
+  });
+
+  it("force bypasses both advancement guard and delegate-only ownership", async () => {
+    const doingStateWithPosition = { id: "state-doing", name: "Doing", type: "started", position: 3 };
+    const thinkingStateWithPosition = { id: "state-thinking", name: "Thinking", type: "started", position: 1 };
+    mockGetIssue.mockResolvedValue({
+      ...baseIssue,
+      state: doingStateWithPosition,
+      // Not the delegate — but force should bypass ownership check too
+      delegate: { id: "user-charles", name: "Charles (CTO)" },
+      assignee: null,
+    });
+    mockFindSemanticState.mockImplementation(async () => thinkingStateWithPosition);
+
+    const result = await considerWork("AI-100", { force: true });
+
+    expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
+      stateId: "state-thinking",
+      delegateId: "user-igor",
+      assigneeId: null,
+    });
+    expect(result.state).toBe("Thinking");
   });
 });
 

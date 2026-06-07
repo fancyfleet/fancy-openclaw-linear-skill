@@ -175,6 +175,18 @@ export interface StateTransition {
   /** Refuse to take ownership unless the authenticated user is still the current delegate/assignee. */
   requireSelfAssignedOrDelegated?: boolean;
   /**
+   * Stricter ownership check: refuse to proceed unless the authenticated user is the current
+   * delegate (ignores assignee). Prevents concurrent-grab when delegate and assignee differ.
+   */
+  requireSelfDelegated?: boolean;
+  /**
+   * Skip the state transition (return no-op with context) when the issue's current state
+   * position is strictly greater than the resolved target state's position.
+   * Used by considerWork to prevent reverting a more-advanced state back to thinking when
+   * a concurrent agent wake fires after another agent already advanced the ticket.
+   */
+  skipIfStatePositionAheadOfTarget?: boolean;
+  /**
    * Label names to apply atomically with the state change. Resolved against
    * the issue's team before any mutation; throws clearly if any are missing.
    */
@@ -335,8 +347,40 @@ export async function executeTransition(
     }
   }
 
+  // Stricter ownership check: delegate-only (ignores assignee).
+  // Prevents concurrent-grab where both delegate and assignee invoke consider-work
+  // simultaneously and stomp each other's state transitions (AI-1394).
+  if (config.requireSelfDelegated) {
+    const self = await getSelfUser();
+    const currentDelegateId = issue.delegate?.id ?? null;
+    if (currentDelegateId !== self.id) {
+      const result = nullResult(issue.state?.name ?? "Unknown");
+      if (config.includeContext) {
+        result.context = await buildObserveContext(issue);
+      }
+      return result;
+    }
+  }
+
   // 2. Resolve target state
   const state = await findSemanticState(teamId, config.targetState);
+
+  // 2.5. Position-based advancement guard: skip if the current state is already
+  //      further along in the workflow than the target state. This prevents
+  //      consider-work (target=thinking) from reverting a more-advanced state
+  //      (e.g. Doing, code-review, deployment) when a concurrent agent wake fires
+  //      after another agent has already advanced the ticket (AI-1394).
+  if (config.skipIfStatePositionAheadOfTarget) {
+    const currentPosition = issue.state?.position ?? null;
+    const targetPosition = state.position ?? null;
+    if (currentPosition !== null && targetPosition !== null && currentPosition > targetPosition) {
+      const result = nullResult(issue.state?.name ?? "Unknown");
+      if (config.includeContext) {
+        result.context = await buildObserveContext(issue);
+      }
+      return result;
+    }
+  }
 
   // 3. Idempotency check — skip the update only if already in the target state
   //    AND the command's ownership invariants (delegate/assignee) already hold.

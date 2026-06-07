@@ -199,7 +199,13 @@ export async function considerWork(
     includeContext: true,
     skipIfSameState: true,
     noopOnTerminal: !options?.force,
-    requireSelfAssignedOrDelegated: !options?.force,
+    // Delegate-only ownership: prevents concurrent-grab where both delegate and assignee
+    // run consider-work simultaneously and stomp each other's transitions (AI-1394).
+    requireSelfDelegated: !options?.force,
+    // Advancement guard: if the ticket is already past "thinking" in the workflow
+    // (higher state position), return a no-op instead of reverting the state. Stops a
+    // stale consider-work wake from silently reverting an already-advanced ticket (AI-1394).
+    skipIfStatePositionAheadOfTarget: !options?.force,
   });
 }
 
