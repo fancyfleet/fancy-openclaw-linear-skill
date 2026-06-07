@@ -112,10 +112,33 @@ beforeEach(() => {
     return map[semantic] ?? todoState;
   });
   mockAddComment.mockResolvedValue({ issueId: "issue-1", commentId: "comment-uuid", commentUrl: "https://linear.app/test/comment/comment-uuid", commentCreatedAt: "2026-04-26T12:00:00Z", commentBodyLength: 4, body: "test" });
-  mockUpdateIssue.mockImplementation(async (id: string, input: any) => ({
-    ...baseIssue,
-    ...input,
-  }));
+  // Simulate the real updateIssue behaviour: translate stateId/delegateId/assigneeId
+  // back into the Issue shape that executeTransition reads from updatedIssue.
+  const _updateUserMap: Record<string, { id: string; name: string }> = {
+    "user-charles": { id: "user-charles", name: "Charles (CTO)" },
+    "user-matt": { id: "user-matt", name: "Matt Henry" },
+    "user-igor": { id: "user-igor", name: "Igor (Back End Dev)" },
+  };
+  const _updateStateMap: Record<string, any> = {
+    "state-thinking": thinkingState,
+    "state-doing": doingState,
+    "state-todo": todoState,
+    "state-done": doneState,
+  };
+  mockUpdateIssue.mockImplementation(async (_id: string, input: any) => {
+    const currentIssue = await mockGetIssue(_id);
+    const result: any = { ...currentIssue };
+    if (input.stateId !== undefined) {
+      result.state = _updateStateMap[input.stateId] ?? currentIssue.state;
+    }
+    if ("delegateId" in input) {
+      result.delegate = input.delegateId === null ? null : _updateUserMap[input.delegateId] ?? null;
+    }
+    if ("assigneeId" in input) {
+      result.assignee = input.assigneeId === null ? null : _updateUserMap[input.assigneeId] ?? currentIssue.assignee;
+    }
+    return result;
+  });
   mockResolveLabelIds.mockImplementation(async (_teamId: string, names: string[]) => {
     const map: Record<string, string> = {
       "gate:agent-review": "lbl-agent-review",
@@ -614,6 +637,43 @@ describe("handoffWork", () => {
         stateId: "state-todo",
         delegateId: "user-charles",
         assigneeId: null,
+      });
+    });
+
+    it("omits assigneeId (does NOT pass null) when delegating to an app user — avoids silent delegate drop (AI-1395)", async () => {
+    mockResolveUserWithHints.mockImplementation(async (name: string) => {
+      if (name === "Igor (Back End Dev)") return { id: "user-igor", name: "Igor (Back End Dev)", app: true };
+      return { id: "user-charles", name: "Charles (CTO)" };
+    });
+    const spy = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
+    await handoffWork("AI-100", "Igor (Back End Dev)", { comment: "Your turn." });
+    spy.mockRestore();
+    const call = mockUpdateIssue.mock.calls[0][1] as any;
+    // delegateId must be present
+    expect(call.delegateId).toBe("user-igor");
+    // assigneeId must be ABSENT (undefined), not null — passing null silently drops app-user delegates
+    expect(call.assigneeId).toBeUndefined();
+  });
+
+  it("strips state:implementation label on dev-impl tickets to prevent column/label divergence (AI-1395)", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [{ id: "lbl-impl", name: "state:implementation", color: "#0f0" }],
+      });
+      mockResolveLabelIds.mockImplementation(async (_teamId: string, names: string[]) => {
+        const map: Record<string, string> = {
+          "gate:agent-review": "lbl-agent-review",
+          "gate:human-review": "lbl-human-review",
+          "state:implementation": "lbl-impl",
+        };
+        return names.map((n) => map[n.toLowerCase()] ?? `lbl-unknown-${n}`);
+      });
+      await handoffWork("AI-100", "Charles (CTO)", { comment: "Handing back." });
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
+        stateId: "state-todo",
+        delegateId: "user-charles",
+        assigneeId: null,
+        removedLabelIds: ["lbl-impl"],
       });
     });
   });

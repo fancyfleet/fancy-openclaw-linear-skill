@@ -56,7 +56,22 @@ beforeEach(() => {
   jest.resetAllMocks();
   mockGetIssue.mockResolvedValue(baseIssue);
   mockGetSelfUser.mockResolvedValue({ id: "user-charles", name: "Charles (CTO)", email: "charles@test.com" });
-  mockUpdateIssue.mockResolvedValue({ ...baseIssue, state: managingState } as never);
+  const _manageUserMap: Record<string, { id: string; name: string }> = {
+    "user-charles": { id: "user-charles", name: "Charles (CTO)" },
+    "user-matt": { id: "user-matt", name: "Matt Henry" },
+  };
+  mockUpdateIssue.mockImplementation(async (_id: string, input: any) => {
+    const currentIssue = await mockGetIssue(_id);
+    const result: any = { ...currentIssue };
+    if (input.stateId !== undefined) result.state = managingState;
+    if ("delegateId" in input) {
+      result.delegate = input.delegateId === null ? null : _manageUserMap[input.delegateId] ?? null;
+    }
+    if ("assigneeId" in input) {
+      result.assignee = input.assigneeId === null ? null : _manageUserMap[input.assigneeId] ?? currentIssue.assignee;
+    }
+    return result;
+  });
   mockFindSemanticState.mockResolvedValue(managingState);
   mockAddComment.mockResolvedValue({
     commentId: "c1",

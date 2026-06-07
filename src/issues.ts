@@ -23,7 +23,7 @@ interface IssuesResponse {
 
 interface SearchUsersResponse {
   users: {
-    nodes: Array<{ id: string; name: string; email?: string | null }>;
+    nodes: Array<{ id: string; name: string; email?: string | null; app?: boolean | null }>;
   };
 }
 
@@ -778,7 +778,7 @@ export async function getMyManaging(): Promise<Issue[]> {
   return issues;
 }
 
-export async function findUserByName(name: string): Promise<{ id: string; name: string; email?: string | null }> {
+export async function findUserByName(name: string): Promise<{ id: string; name: string; email?: string | null; app?: boolean | null }> {
   const data = await linearGraphQL<SearchUsersResponse>(
     `
       query SearchUsers($query: String!) {
@@ -787,6 +787,7 @@ export async function findUserByName(name: string): Promise<{ id: string; name: 
             id
             name
             email
+            app
           }
         }
       }
@@ -860,7 +861,7 @@ const KNOWN_AGENTS = ["Charles (CTO)", "Astrid (CPO)", "Felix (Unity Dev)", "Noa
  * Enhanced user resolution with contextual hints.
  * Wraps findUserByName to add helpful suggestions when resolution fails.
  */
-export async function resolveUserWithHints(name: string, contextCommand?: string): Promise<{ id: string; name: string; email?: string | null }> {
+export async function resolveUserWithHints(name: string, contextCommand?: string): Promise<{ id: string; name: string; email?: string | null; app?: boolean | null }> {
   try {
     // UUID passthrough — skip API call
     if (UUID_RE.test(name)) {

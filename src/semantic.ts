@@ -353,6 +353,9 @@ export async function handoffWork(
     clearAssignee: true,
     commentFirst: true,
     addLabels: options?.reviewHandoff ? [AGENT_REVIEW_LABEL] : undefined,
+    // Strip any active dev-impl state:* labels when doing a generic handoff to
+    // prevent column/label divergence (state=To Do but label=state:implementation).
+    removeLabelsIfPresent: ["state:intake", "state:implementation", "state:code-review", "state:deployment"],
   });
 }
 
