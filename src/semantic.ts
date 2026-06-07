@@ -57,6 +57,7 @@ export interface ObserveResult {
   priority: number;
   assignee: { name: string } | null;
   delegate: { name: string } | null;
+  labels: Array<{ name: string; color?: string | null }>;
   /** Sorted ascending by createdAt */
   comments: Array<{ id: string; body: string; createdAt: string; user: { name: string; isAgent?: boolean | null; app?: boolean | null } }>;
   /** Sorted ascending by createdAt */
@@ -121,6 +122,7 @@ export async function observeIssue(
     priority: issue.priority ?? 0,
     assignee: issue.assignee ? { name: issue.assignee.name } : null,
     delegate: issue.delegate ? { name: issue.delegate.name } : null,
+    labels: (issue.labels ?? []).map((l) => ({ name: l.name, color: l.color })),
     comments: filteredComments,
     history: historyToTimelineEvents(history),
   };

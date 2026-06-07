@@ -165,6 +165,7 @@ function renderTimeline(data: ObserveResult): string {
   lines.push(metaParts.join(" | "));
   if (data.assignee) lines.push(`Assignee: ${data.assignee.name}`);
   if (data.delegate) lines.push(`Delegate: ${data.delegate.name}`);
+  if (data.labels && data.labels.length > 0) lines.push(`Labels: ${data.labels.map((l) => l.name).join(", ")}`);
 
   lines.push(...renderPinnedComments(data));
 
