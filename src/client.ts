@@ -2,6 +2,7 @@ import axios from "axios";
 
 import { ensureApiKey } from "./auth";
 import { debugDump, isDebugMode } from "./debug";
+import pkg from "../package.json";
 
 const LINEAR_API_URL = "https://api.linear.app/graphql";
 
@@ -48,7 +49,10 @@ function proxyHeaders(): Record<string, string> {
     process.env.OPENCLAW_MCP_AGENT_ID ??
     process.env.OPENCLAW_AGENT_NAME ??
     "unknown";
-  const headers: Record<string, string> = { "X-Openclaw-Agent": agentId };
+  const headers: Record<string, string> = {
+    "X-Openclaw-Agent": agentId,
+    "X-Openclaw-Linear-Cli-Version": pkg.version,
+  };
   if (_proxyIntent) headers["X-Openclaw-Linear-Intent"] = _proxyIntent;
   if (_proxyTarget) headers["X-Openclaw-Linear-Target"] = _proxyTarget;
   return headers;
