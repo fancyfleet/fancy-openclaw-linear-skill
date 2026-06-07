@@ -469,6 +469,82 @@ describe("dev-impl semantic verbs", () => {
     });
   });
 
+  describe("stale state:* label purge — all other state:* labels cleared on any transition (AI-1390 regression guard)", () => {
+    it("approve: clears stale state:implementation label alongside state:code-review", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [
+          { id: "label-code-review", name: "state:code-review", color: "#000" },
+          { id: "label-implementation", name: "state:implementation", color: "#000" },
+        ],
+      });
+      await approve("AI-200");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        addedLabelIds: ["label-deployment"],
+        removedLabelIds: expect.arrayContaining(["label-code-review", "label-implementation"]),
+      }));
+    });
+
+    it("submit: clears stale state:deployment label alongside state:implementation", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [
+          { id: "label-implementation", name: "state:implementation", color: "#000" },
+          { id: "label-deployment", name: "state:deployment", color: "#000" },
+        ],
+      });
+      await submit("AI-200");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        addedLabelIds: ["label-code-review"],
+        removedLabelIds: expect.arrayContaining(["label-implementation", "label-deployment"]),
+      }));
+    });
+
+    it("reject: clears stale state:code-review label alongside state:deployment", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [
+          { id: "label-deployment", name: "state:deployment", color: "#000" },
+          { id: "label-code-review", name: "state:code-review", color: "#000" },
+        ],
+      });
+      await reject("AI-200", { comment: "Failed." });
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        addedLabelIds: ["label-implementation"],
+        removedLabelIds: expect.arrayContaining(["label-deployment", "label-code-review"]),
+      }));
+    });
+
+    it("deploy: clears all stale state:* labels when ticket has multiple", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [
+          { id: "label-deployment", name: "state:deployment", color: "#000" },
+          { id: "label-code-review", name: "state:code-review", color: "#000" },
+        ],
+      });
+      await deploy("AI-200");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        removedLabelIds: expect.arrayContaining(["label-deployment", "label-code-review"]),
+      }));
+    });
+
+    it("demote: clears all state:* labels plus wf:dev-impl when ticket has multiple", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [
+          { id: "label-intake", name: "state:intake", color: "#000" },
+          { id: "label-code-review", name: "state:code-review", color: "#000" },
+          { id: "label-wf-dev-impl", name: "wf:dev-impl", color: "#000" },
+        ],
+      });
+      await demote("AI-200");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        removedLabelIds: expect.arrayContaining(["label-intake", "label-code-review", "label-wf-dev-impl"]),
+      }));
+    });
+  });
+
   describe("targetState guard — every verb targets a real SEMANTIC_STATE_MAP key", () => {
     const VERB_TARGET_STATES: Record<string, string> = {
       accept: "doing",
