@@ -31,6 +31,12 @@ export function setProxyIntent(intent: string | undefined): void {
   _proxyIntent = intent;
 }
 
+let _proxyTarget: string | undefined;
+
+export function setProxyTarget(target: string | undefined): void {
+  _proxyTarget = target;
+}
+
 /**
  * Extra headers to attach when routing through the proxy so it can identify
  * the calling agent for logging and enforcement (Phase 2, design.md §11).
@@ -44,6 +50,7 @@ function proxyHeaders(): Record<string, string> {
     "unknown";
   const headers: Record<string, string> = { "X-Openclaw-Agent": agentId };
   if (_proxyIntent) headers["X-Openclaw-Linear-Intent"] = _proxyIntent;
+  if (_proxyTarget) headers["X-Openclaw-Linear-Target"] = _proxyTarget;
   return headers;
 }
 

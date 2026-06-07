@@ -14,7 +14,7 @@ import {
   isMattTarget,
   logRefusal,
 } from "./matt-escalation-guard";
-import { setProxyIntent } from "./client";
+import { setProxyIntent, setProxyTarget } from "./client";
 import { getComments, getIssueHistory } from "./boards";
 import { addComment, getIssue, updateIssue } from "./issues";
 import { resolveLabelIds } from "./labels";
@@ -644,8 +644,10 @@ export async function parkWork(
  */
 export async function accept(
   issueId: string,
+  target?: string,
   options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
 ): Promise<SemanticResult> {
+  setProxyTarget(target);
   setProxyIntent("accept");
   try {
     return await executeTransition("accept", {
@@ -653,12 +655,15 @@ export async function accept(
       comment: options?.comment,
       commentFile: options?.commentFile,
       forceDuplicate: options?.forceDuplicate,
+      userName: target,
     }, {
       targetState: "doing",
       commentMode: "optional",
+      ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
     setProxyIntent(undefined);
+    setProxyTarget(undefined);
   }
 }
 
@@ -670,8 +675,10 @@ export async function accept(
  */
 export async function submit(
   issueId: string,
+  target?: string,
   options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
 ): Promise<SemanticResult> {
+  setProxyTarget(target);
   setProxyIntent("submit");
   try {
     return await executeTransition("submit", {
@@ -679,12 +686,15 @@ export async function submit(
       comment: options?.comment,
       commentFile: options?.commentFile,
       forceDuplicate: options?.forceDuplicate,
+      userName: target,
     }, {
       targetState: "thinking",
       commentMode: "optional",
+      ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
     setProxyIntent(undefined);
+    setProxyTarget(undefined);
   }
 }
 

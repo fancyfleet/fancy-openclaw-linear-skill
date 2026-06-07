@@ -154,7 +154,7 @@ describe("dev-impl semantic verbs", () => {
     });
 
     it("posts optional comment", async () => {
-      await accept("AI-200", { comment: "Accepting this." });
+      await accept("AI-200", undefined, { comment: "Accepting this." });
       expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Accepting this.");
     });
 
@@ -181,7 +181,7 @@ describe("dev-impl semantic verbs", () => {
     });
 
     it("posts optional comment", async () => {
-      await submit("AI-200", { comment: "Ready for review." });
+      await submit("AI-200", undefined, { comment: "Ready for review." });
       expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Ready for review.");
     });
   });

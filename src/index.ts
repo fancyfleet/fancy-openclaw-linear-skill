@@ -892,21 +892,23 @@ async function main(): Promise<void> {
   // --- Dev-impl workflow semantic verbs (AI-1362) ---
 
   program.command("accept").argument("<id>")
+    .argument("[target]", "Implementer body to assign (e.g. felix, sage)")
     .option("--comment <msg>", INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
     .description("Accept a ticket from intake into implementation (dev-impl: intake → implementation)")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
-      await runCommand(async () => accept(id, options), program.opts<{ human?: boolean }>().human);
+    .action(async (id: string, target: string | undefined, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => accept(id, target, options), program.opts<{ human?: boolean }>().human);
     });
 
   program.command("submit").argument("<id>")
+    .argument("[target]", "Reviewer body to assign (e.g. felix, noah)")
     .option("--comment <msg>", INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
     .description("Submit implementation for code review (dev-impl: implementation → code-review)")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
-      await runCommand(async () => submit(id, options), program.opts<{ human?: boolean }>().human);
+    .action(async (id: string, target: string | undefined, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => submit(id, target, options), program.opts<{ human?: boolean }>().human);
     });
 
   program.command("approve").argument("<id>")
@@ -922,8 +924,9 @@ async function main(): Promise<void> {
     .option("--comment <msg>", "Feedback comment (required). " + INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file (overrides --comment)")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .option("--target <name>", "Override default implementer target")
     .description("Request changes during code review (dev-impl: code-review → implementation). Requires --comment.")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }) => {
       await runCommand(async () => requestChanges(id, options), program.opts<{ human?: boolean }>().human);
     });
 
@@ -940,8 +943,9 @@ async function main(): Promise<void> {
     .option("--comment <msg>", "Rejection reason (required). " + INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file (overrides --comment)")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .option("--target <name>", "Override default implementer target")
     .description("Reject during deployment (dev-impl: deployment → implementation). Requires --comment.")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }) => {
       await runCommand(async () => reject(id, options), program.opts<{ human?: boolean }>().human);
     });
 
