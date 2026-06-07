@@ -270,6 +270,7 @@ async function buildObserveContext(issue: Awaited<ReturnType<typeof getIssue>>):
     priority: issue.priority ?? 0,
     assignee: issue.assignee ? { name: issue.assignee.name } : null,
     delegate: issue.delegate ? { name: issue.delegate.name } : null,
+    labels: (issue.labels ?? []).map((l) => ({ name: l.name, color: l.color })),
     comments: rawComments,
     history: historyToTimelineEvents(history),
   };

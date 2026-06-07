@@ -13,6 +13,7 @@ import fs from "node:fs/promises";
 
 import { getSelfUser } from "../auth";
 import { addComment, resolveUserWithHints, getIssue, updateIssue } from "../issues";
+import { resolveLabelIds } from "../labels";
 import { findSemanticState, SEMANTIC_STATE_MAP } from "../states";
 import {
   accept,
@@ -66,6 +67,17 @@ const mockResolveUserWithHints = resolveUserWithHints as jest.MockedFunction<typ
 const mockGetIssue = getIssue as jest.MockedFunction<typeof getIssue>;
 const mockUpdateIssue = updateIssue as jest.MockedFunction<typeof updateIssue>;
 const mockFindSemanticState = findSemanticState as jest.MockedFunction<typeof findSemanticState>;
+const mockResolveLabelIds = resolveLabelIds as jest.MockedFunction<typeof resolveLabelIds>;
+
+// Maps state:* and wf:* label names to stable mock IDs for assertion.
+const LABEL_ID_MAP: Record<string, string> = {
+  "state:intake": "label-intake",
+  "state:implementation": "label-implementation",
+  "state:code-review": "label-code-review",
+  "state:deployment": "label-deployment",
+  "state:escape": "label-escape",
+  "wf:dev-impl": "label-wf-dev-impl",
+};
 
 const baseIssue: any = {
   id: "issue-1",
@@ -86,6 +98,9 @@ const backlogState = { id: "state-backlog", name: "Backlog", type: "backlog" };
 beforeEach(() => {
   jest.resetAllMocks();
   mockGetIssue.mockResolvedValue(baseIssue);
+  mockResolveLabelIds.mockImplementation(async (_teamId: string, names: string[]) =>
+    names.map((n) => LABEL_ID_MAP[n] ?? `label-unknown-${n}`)
+  );
   mockGetSelfUser.mockResolvedValue({ id: "user-igor", name: "Igor (Back End Dev)", email: "igor@test.com" });
   mockResolveUserWithHints.mockImplementation(async (name: string) => {
     const users: Record<string, { id: string; name: string }> = {
@@ -137,11 +152,12 @@ function expectIntentSetAndCleared(intent: string): void {
 
 describe("dev-impl semantic verbs", () => {
   describe("accept", () => {
-    it("sets intent to 'accept' and transitions to doing", async () => {
+    it("sets intent to 'accept', transitions to doing, and applies state:implementation label", async () => {
       const result = await accept("AI-200");
       expectIntentSetAndCleared("accept");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
         stateId: "state-doing",
+        addedLabelIds: ["label-implementation"],
       });
       expect(result.command).toBe("accept");
       expect(result.state).toBe("In Progress");
@@ -165,11 +181,12 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("submit", () => {
-    it("sets intent to 'submit' and transitions to thinking (awaiting review)", async () => {
+    it("sets intent to 'submit', transitions to thinking, and applies state:code-review label", async () => {
       const result = await submit("AI-200");
       expectIntentSetAndCleared("submit");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
         stateId: "state-thinking",
+        addedLabelIds: ["label-code-review"],
       });
       expect(result.command).toBe("submit");
     });
@@ -187,11 +204,12 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("approve", () => {
-    it("sets intent to 'approve' and transitions to doing (deployment)", async () => {
+    it("sets intent to 'approve', transitions to doing, and applies state:deployment label", async () => {
       const result = await approve("AI-200");
       expectIntentSetAndCleared("approve");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
         stateId: "state-doing",
+        addedLabelIds: ["label-deployment"],
       });
       expect(result.command).toBe("approve");
     });
@@ -209,12 +227,13 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("request-changes", () => {
-    it("sets intent to 'request-changes' and transitions to doing with comment", async () => {
+    it("sets intent to 'request-changes', transitions to doing, and applies state:implementation label", async () => {
       const result = await requestChanges("AI-200", { comment: "Needs more tests." });
       expectIntentSetAndCleared("request-changes");
       expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Needs more tests.");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
         stateId: "state-doing",
+        addedLabelIds: ["label-implementation"],
       });
       expect(result.command).toBe("requestChanges");
     });
@@ -250,9 +269,11 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("deploy", () => {
-    it("sets intent to 'deploy' and transitions to done, clears ownership", async () => {
+    it("sets intent to 'deploy', transitions to done, clears ownership (no addedLabelIds — done is terminal)", async () => {
       const result = await deploy("AI-200");
       expectIntentSetAndCleared("deploy");
+      // baseIssue has no labels, so removeLabelsIfPresent is a no-op (no removedLabelIds).
+      // done is a terminal state with no state:* label, so no addedLabelIds either.
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
         stateId: "state-done",
         delegateId: null,
@@ -260,6 +281,17 @@ describe("dev-impl semantic verbs", () => {
       });
       expect(result.command).toBe("deploy");
       expect(result.state).toBe("Done");
+    });
+
+    it("strips state:deployment label when present", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [{ id: "label-deployment", name: "state:deployment", color: "#000" }],
+      });
+      await deploy("AI-200");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        removedLabelIds: ["label-deployment"],
+      }));
     });
 
     it("clears intent even on error", async () => {
@@ -275,12 +307,13 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("reject", () => {
-    it("sets intent to 'reject' and transitions to doing with comment", async () => {
+    it("sets intent to 'reject', transitions to doing, and applies state:implementation label", async () => {
       const result = await reject("AI-200", { comment: "Build is red." });
       expectIntentSetAndCleared("reject");
       expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Build is red.");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
         stateId: "state-doing",
+        addedLabelIds: ["label-implementation"],
       });
       expect(result.command).toBe("reject");
     });
@@ -315,7 +348,24 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("escape", () => {
-    it("sets intent to 'escape' and transitions to backlog, clears ownership", async () => {
+    it("sets intent to 'escape', transitions to backlog, clears ownership, strips any state:* label present", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [{ id: "label-code-review", name: "state:code-review", color: "#000" }],
+      });
+      const result = await escape("AI-200");
+      expectIntentSetAndCleared("escape");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        stateId: "state-backlog",
+        delegateId: null,
+        assigneeId: null,
+        removedLabelIds: ["label-code-review"],
+      }));
+      expect(result.command).toBe("escape");
+      expect(result.state).toBe("Backlog");
+    });
+
+    it("no removedLabelIds when issue has no state:* labels", async () => {
       const result = await escape("AI-200");
       expectIntentSetAndCleared("escape");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
@@ -324,7 +374,6 @@ describe("dev-impl semantic verbs", () => {
         assigneeId: null,
       });
       expect(result.command).toBe("escape");
-      expect(result.state).toBe("Backlog");
     });
 
     it("clears intent even on error", async () => {
@@ -340,9 +389,10 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("demote", () => {
-    it("sets intent to 'demote' and transitions to backlog, clears ownership", async () => {
+    it("sets intent to 'demote', transitions to backlog, clears ownership", async () => {
       const result = await demote("AI-200");
       expectIntentSetAndCleared("demote");
+      // baseIssue has no labels — removeLabelsIfPresent is a no-op
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
         stateId: "state-backlog",
         delegateId: null,
@@ -350,6 +400,20 @@ describe("dev-impl semantic verbs", () => {
       });
       expect(result.command).toBe("demote");
       expect(result.state).toBe("Backlog");
+    });
+
+    it("strips state:intake and wf:dev-impl labels when present", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [
+          { id: "label-intake", name: "state:intake", color: "#000" },
+          { id: "label-wf-dev-impl", name: "wf:dev-impl", color: "#000" },
+        ],
+      });
+      await demote("AI-200");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        removedLabelIds: expect.arrayContaining(["label-intake", "label-wf-dev-impl"]),
+      }));
     });
 
     it("clears intent even on error", async () => {
@@ -361,6 +425,47 @@ describe("dev-impl semantic verbs", () => {
     it("posts optional comment", async () => {
       await demote("AI-200", { comment: "Not ready for dev-impl." });
       expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Not ready for dev-impl.");
+    });
+  });
+
+  describe("state:* label swap — atomic column + label update (AI-1388 regression guard)", () => {
+    it("approve: swaps state:code-review → state:deployment atomically when label is present", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [{ id: "label-code-review", name: "state:code-review", color: "#000" }],
+      });
+      await approve("AI-200");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
+        stateId: "state-doing",
+        addedLabelIds: ["label-deployment"],
+        removedLabelIds: ["label-code-review"],
+      });
+    });
+
+    it("submit: swaps state:implementation → state:code-review atomically when label is present", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [{ id: "label-implementation", name: "state:implementation", color: "#000" }],
+      });
+      await submit("AI-200");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
+        stateId: "state-thinking",
+        addedLabelIds: ["label-code-review"],
+        removedLabelIds: ["label-implementation"],
+      });
+    });
+
+    it("reject: swaps state:deployment → state:implementation atomically when label is present", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [{ id: "label-deployment", name: "state:deployment", color: "#000" }],
+      });
+      await reject("AI-200", { comment: "Deployment failed." });
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
+        stateId: "state-doing",
+        addedLabelIds: ["label-implementation"],
+        removedLabelIds: ["label-deployment"],
+      });
     });
   });
 
