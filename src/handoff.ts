@@ -37,8 +37,15 @@ export async function handoffIssue(
     );
   }
 
+  // Linear rejects { assigneeId: app_user, delegateId: <anything> } (AI-1395).
+  // For app-user reviewers, send only delegateId and omit assigneeId entirely.
+  const reviewerIsAppUser = reviewer.app === true;
+  const updatePayload = reviewerIsAppUser
+    ? { delegateId: reviewer.id, stateId: reviewState.id }
+    : { assigneeId: reviewer.id, stateId: reviewState.id, delegateId: null };
+
   try {
-    await updateIssue(issueId, { assigneeId: reviewer.id, stateId: reviewState.id, delegateId: null });
+    await updateIssue(issueId, updatePayload);
   } catch {
     throw new Error(
       `Handoff failed at step issueUpdate for ${issue.identifier}. Comment may already be posted. Recovery: linear update-issue ${issue.identifier} --assignee "${reviewer.id}" --state "${reviewState.name}" --team ${teamId}`

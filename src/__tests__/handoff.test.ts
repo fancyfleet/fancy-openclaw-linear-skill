@@ -40,13 +40,14 @@ describe("handoffIssue", () => {
   beforeEach(() => {
     jest.resetAllMocks();
     mockGetIssue.mockResolvedValue(baseIssue);
-    mockFindUserByName.mockResolvedValue({ id: "user-charles", name: "Charles (CTO)" });
+    mockFindUserByName.mockResolvedValue({ id: "user-charles", name: "Charles (CTO)", app: false });
     mockFindStateByName.mockResolvedValue({ id: "state-review", name: "Needs Review" });
     mockAddComment.mockResolvedValue({ issueId: "issue-1", commentId: "comment-uuid", commentUrl: "https://linear.app/test/comment/comment-uuid", commentCreatedAt: "2026-04-26T12:00:00Z", commentBodyLength: 5, body: "Done!" });
     mockUpdateIssue.mockResolvedValue(baseIssue);
   });
 
-  it("posts comment and updates assignee/state/delegate", async () => {
+  it("posts comment and updates assignee/state/delegate for human reviewer", async () => {
+    mockFindUserByName.mockResolvedValue({ id: "user-charles", name: "Charles (CTO)", app: false });
     const result = await handoffIssue("AI-100", "Charles (CTO)", "All done here.");
     expect(mockAddComment).toHaveBeenCalledWith("AI-100", "All done here.");
     expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
@@ -61,6 +62,18 @@ describe("handoffIssue", () => {
       commentPosted: true,
       commentId: "comment-uuid"
     });
+  });
+
+  it("sends only delegateId (no assigneeId) when reviewer is an app user (AI-1395)", async () => {
+    mockFindUserByName.mockResolvedValue({ id: "user-charles", name: "Charles (CTO)", app: true });
+    const result = await handoffIssue("AI-100", "Charles (CTO)", "All done here.");
+    expect(mockAddComment).toHaveBeenCalledWith("AI-100", "All done here.");
+    const call = mockUpdateIssue.mock.calls[0][1] as any;
+    expect(call.delegateId).toBe("user-charles");
+    expect(call.stateId).toBe("state-review");
+    // Linear rejects { assigneeId: app_user, delegateId: <anything> } — assigneeId must be absent
+    expect(call.assigneeId).toBeUndefined();
+    expect(result.reviewer).toBe("Charles (CTO)");
   });
 
   it("reads comment from file when --comment-file is used", async () => {
