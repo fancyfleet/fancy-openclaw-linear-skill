@@ -11,8 +11,6 @@
 
 import axios from "axios";
 
-import { ensureApiKey } from "./auth";
-
 // --- Types (mirrors connector's observation-store MetricRollup) ---
 
 export interface MetricRow {
@@ -93,12 +91,11 @@ export async function fetchMetrics(
 
   // The admin API uses ADMIN_SECRET via Bearer auth (same as the dashboard).
   // Prefer the dedicated env var; fall back to LINEAR_API_KEY for local dev.
-  const adminSecret = process.env.LINEAR_ADMIN_SECRET ?? ensureApiKey();
-
+  // The connector admin GET endpoints are unauthenticated (trusted-network).
+  // No Authorization header needed for GET routes.
   try {
     const response = await axios.get<MetricRollup>(url, {
       headers: {
-        Authorization: `Bearer ${adminSecret}`,
         "Content-Type": "application/json",
       },
       timeout: 10_000,
