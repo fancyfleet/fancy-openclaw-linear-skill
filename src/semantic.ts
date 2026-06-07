@@ -364,18 +364,23 @@ export async function complete(
   issueId: string,
   options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
 ): Promise<SemanticResult> {
-  return executeTransition("complete", {
-    issueId,
-    comment: options?.comment,
-    commentFile: options?.commentFile,
-    forceDuplicate: options?.forceDuplicate,
-  }, {
-    targetState: "done",
-    commentMode: "optional",
-    clearDelegate: true,
-    clearAssignee: true,
-    removeLabelsIfPresent: [AGENT_REVIEW_LABEL, HUMAN_REVIEW_LABEL],
-  });
+  setProxyIntent("complete");
+  try {
+    return await executeTransition("complete", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      targetState: "done",
+      commentMode: "optional",
+      clearDelegate: true,
+      clearAssignee: true,
+      removeLabelsIfPresent: [AGENT_REVIEW_LABEL, HUMAN_REVIEW_LABEL],
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
 }
 
 export interface NoteResult {
@@ -619,17 +624,22 @@ export async function parkWork(
   issueId: string,
   options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
 ): Promise<SemanticResult> {
-  return executeTransition("parkWork", {
-    issueId,
-    comment: options?.comment,
-    commentFile: options?.commentFile,
-    forceDuplicate: options?.forceDuplicate,
-  }, {
-    targetState: "backlog",
-    commentMode: "optional",
-    clearDelegate: true,
-    clearAssignee: true,
-  });
+  setProxyIntent("park");
+  try {
+    return await executeTransition("parkWork", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      targetState: "backlog",
+      commentMode: "optional",
+      clearDelegate: true,
+      clearAssignee: true,
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
 }
 
 // --- Dev-impl workflow semantic verbs (AI-1362) ---

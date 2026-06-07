@@ -24,6 +24,8 @@ import {
   reject,
   escape,
   demote,
+  complete,
+  parkWork,
 } from "../semantic";
 import { setProxyIntent } from "../client";
 
@@ -504,5 +506,33 @@ describe("dev-impl semantic verbs", () => {
       const lastCall = mockSetProxyIntent.mock.calls[mockSetProxyIntent.mock.calls.length - 1];
       expect(lastCall[0]).toBeUndefined();
     });
+  });
+});
+
+describe("complete — proxy intent guard (AI-1392)", () => {
+  it("sets intent to 'complete' so the proxy can gate wf:dev-impl tickets", async () => {
+    await complete("AI-200");
+    expectIntentSetAndCleared("complete");
+  });
+
+  it("clears intent even when executeTransition throws", async () => {
+    mockUpdateIssue.mockRejectedValueOnce(new Error("API error"));
+    await expect(complete("AI-200")).rejects.toThrow("API error");
+    const lastCall = mockSetProxyIntent.mock.calls[mockSetProxyIntent.mock.calls.length - 1];
+    expect(lastCall[0]).toBeUndefined();
+  });
+});
+
+describe("parkWork — proxy intent guard (AI-1392)", () => {
+  it("sets intent to 'park' so the proxy can gate wf:dev-impl tickets", async () => {
+    await parkWork("AI-200");
+    expectIntentSetAndCleared("park");
+  });
+
+  it("clears intent even when executeTransition throws", async () => {
+    mockUpdateIssue.mockRejectedValueOnce(new Error("API error"));
+    await expect(parkWork("AI-200")).rejects.toThrow("API error");
+    const lastCall = mockSetProxyIntent.mock.calls[mockSetProxyIntent.mock.calls.length - 1];
+    expect(lastCall[0]).toBeUndefined();
   });
 });
