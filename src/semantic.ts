@@ -760,7 +760,7 @@ export async function approve(
  */
 export async function requestChanges(
   issueId: string,
-  options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+  options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }
 ): Promise<SemanticResult> {
   const body = await (async () => {
     if (options.commentFile) {
@@ -775,20 +775,25 @@ export async function requestChanges(
   if (!body) {
     throw new Error("request-changes requires --comment <text>.");
   }
+  const target = options.target;
+  setProxyTarget(target);
   setProxyIntent("request-changes");
   try {
     return await executeTransition("requestChanges", {
       issueId,
       comment: body,
       forceDuplicate: options.forceDuplicate,
+      userName: target,
     }, {
       targetState: "doing",
       commentMode: "required",
       addLabels: ["state:implementation"],
       removeLabelsIfPresent: ["state:intake", "state:code-review", "state:deployment"],
+      ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
     setProxyIntent(undefined);
+    setProxyTarget(undefined);
   }
 }
 

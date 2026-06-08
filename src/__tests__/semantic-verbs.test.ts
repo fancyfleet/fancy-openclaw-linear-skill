@@ -285,6 +285,27 @@ describe("dev-impl semantic verbs", () => {
       await expect(requestChanges("AI-200", { comment: "Feedback." })).rejects.toThrow("API error");
       expect(mockSetProxyIntent).toHaveBeenCalledWith(undefined);
     });
+
+    it("re-delegates to target when --target is provided (app user)", async () => {
+      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-igor", name: "Igor (Back End Dev)", app: true });
+      await requestChanges("AI-200", { comment: "Needs more tests.", target: "Igor (Back End Dev)" });
+      const call = mockUpdateIssue.mock.calls[0][1] as any;
+      expect(call.delegateId).toBe("user-igor");
+      expect(call.assigneeId).toBeUndefined();
+    });
+
+    it("re-delegates to target when --target is provided (non-app user)", async () => {
+      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-charles", name: "Charles (CTO)", app: false });
+      await requestChanges("AI-200", { comment: "Needs more tests.", target: "Charles (CTO)" });
+      const call = mockUpdateIssue.mock.calls[0][1] as any;
+      expect(call.delegateId).toBe("user-charles");
+    });
+
+    it("does not include delegateId when no --target is provided", async () => {
+      await requestChanges("AI-200", { comment: "Needs more tests." });
+      const call = mockUpdateIssue.mock.calls[0][1] as any;
+      expect(call.delegateId).toBeUndefined();
+    });
   });
 
   describe("deploy", () => {
