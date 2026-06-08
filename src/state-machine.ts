@@ -193,7 +193,8 @@ export interface StateTransition {
   addLabels?: string[];
   /**
    * Label names to strip atomically with the state change if currently
-   * present on the issue. Names absent from the issue are silently skipped.
+   * Always resolved and sent to Linear regardless of current presence; removing a
+   * label not on the issue is a harmless no-op (AI-1389).
    */
   removeLabelsIfPresent?: string[];
 }
@@ -508,6 +509,29 @@ export async function executeTransition(
 
   // 9. Execute update
   const updatedIssue = await updateIssue(args.issueId, updatePayload);
+
+  // 9.5. Post-update label verification: if the mutation set a new state:* label
+  //      but a prior state:* label persists (concurrent write, API race), issue a
+  //      corrective removal to guarantee at most one state:* label (AI-1389).
+  if (config.addLabels?.length && config.removeLabelsIfPresent?.length) {
+    const newStateLabels = config.addLabels.filter((n) => n.toLowerCase().startsWith("state:"));
+    if (newStateLabels.length > 0) {
+      const actualLabels = (updatedIssue.labels ?? []).map((l) => l.name.toLowerCase());
+      const staleLabels = actualLabels.filter(
+        (l) => l.startsWith("state:") && !newStateLabels.some((n) => n.toLowerCase() === l)
+      );
+      if (staleLabels.length > 0) {
+        process.stderr.write(
+          `Warning: stale state:* labels detected after update: [${staleLabels.join(", ")}]. ` +
+          `Issuing corrective removal (AI-1389).\n`
+        );
+        const staleIds = await resolveLabelIds(teamId, staleLabels);
+        if (staleIds.length > 0) {
+          await updateIssue(args.issueId, { removedLabelIds: staleIds });
+        }
+      }
+    }
+  }
 
   // 10. Post comment (after update if not commentFirst)
   if (body && config.commentMode !== "none" && !config.commentFirst) {

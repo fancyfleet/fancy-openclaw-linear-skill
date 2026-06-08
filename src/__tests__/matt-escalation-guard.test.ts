@@ -4,6 +4,7 @@ import { handoffWork, needsHuman } from "../semantic";
 import { addComment, findUserByName, resolveUserWithHints, getIssue, updateIssue } from "../issues";
 import { findSemanticState } from "../states";
 import { getSelfUser } from "../auth";
+import { resolveLabelIds } from "../labels";
 
 jest.mock("node:fs/promises");
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -26,6 +27,10 @@ jest.mock("../issues", () => ({
   updateIssue: jest.fn(),
 }));
 
+jest.mock("../labels", () => ({
+  resolveLabelIds: jest.fn(),
+}));
+
 jest.mock("../boards", () => ({
   getComments: jest.fn().mockResolvedValue([]),
   getIssueHistory: jest.fn().mockResolvedValue([]),
@@ -43,6 +48,7 @@ const mockResolveUserWithHints = resolveUserWithHints as jest.MockedFunction<typ
 const mockGetIssue = getIssue as jest.MockedFunction<typeof getIssue>;
 const mockUpdateIssue = updateIssue as jest.MockedFunction<typeof updateIssue>;
 const mockFindSemanticState = findSemanticState as jest.MockedFunction<typeof findSemanticState>;
+const mockResolveLabelIds = resolveLabelIds as jest.MockedFunction<typeof resolveLabelIds>;
 
 const baseIssue: any = {
   id: "issue-1",
@@ -81,6 +87,7 @@ beforeEach(() => {
     return user;
   });
   mockFindSemanticState.mockResolvedValue(todoState);
+  mockResolveLabelIds.mockResolvedValue([]);
   mockUpdateIssue.mockResolvedValue({ ...baseIssue, state: todoState });
   mockAddComment.mockResolvedValue({
     issueId: "issue-1",

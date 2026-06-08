@@ -143,6 +143,12 @@ beforeEach(() => {
     const map: Record<string, string> = {
       "gate:agent-review": "lbl-agent-review",
       "gate:human-review": "lbl-human-review",
+      "state:intake": "lbl-state-intake",
+      "state:implementation": "lbl-state-impl",
+      "state:code-review": "lbl-state-code-review",
+      "state:deployment": "lbl-state-deployment",
+      "state:done": "lbl-state-done",
+      "wf:dev-impl": "lbl-wf-dev-impl",
     };
     const ids: string[] = [];
     const missing: string[] = [];
@@ -533,6 +539,7 @@ describe("handoffWork", () => {
       stateId: "state-todo",
       delegateId: "user-charles",
       assigneeId: null,
+      removedLabelIds: ["lbl-state-intake", "lbl-state-impl", "lbl-state-code-review", "lbl-state-deployment"],
     });
     expect(result).toEqual({
       command: "handoffWork",
@@ -561,6 +568,7 @@ describe("handoffWork", () => {
       stateId: "state-todo",
       delegateId: "user-charles",
       assigneeId: null,
+      removedLabelIds: ["lbl-state-intake", "lbl-state-impl", "lbl-state-code-review", "lbl-state-deployment"],
     });
     expect(result.commentPosted).toBe(false);
   });
@@ -586,6 +594,7 @@ describe("handoffWork", () => {
         delegateId: "user-charles",
         assigneeId: null,
         addedLabelIds: ["lbl-agent-review"],
+        removedLabelIds: ["lbl-state-intake", "lbl-state-impl", "lbl-state-code-review", "lbl-state-deployment"],
       });
     });
 
@@ -617,6 +626,7 @@ describe("handoffWork", () => {
         delegateId: "user-charles",
         assigneeId: null,
         addedLabelIds: ["lbl-agent-review"],
+        removedLabelIds: ["lbl-state-intake", "lbl-state-impl", "lbl-state-code-review", "lbl-state-deployment"],
       });
     });
 
@@ -637,6 +647,7 @@ describe("handoffWork", () => {
         stateId: "state-todo",
         delegateId: "user-charles",
         assigneeId: null,
+        removedLabelIds: ["lbl-state-intake", "lbl-state-impl", "lbl-state-code-review", "lbl-state-deployment"],
       });
     });
 
@@ -665,6 +676,9 @@ describe("handoffWork", () => {
           "gate:agent-review": "lbl-agent-review",
           "gate:human-review": "lbl-human-review",
           "state:implementation": "lbl-impl",
+          "state:intake": "lbl-state-intake",
+          "state:code-review": "lbl-state-code-review",
+          "state:deployment": "lbl-state-deployment",
         };
         return names.map((n) => map[n.toLowerCase()] ?? `lbl-unknown-${n}`);
       });
@@ -673,7 +687,7 @@ describe("handoffWork", () => {
         stateId: "state-todo",
         delegateId: "user-charles",
         assigneeId: null,
-        removedLabelIds: ["lbl-impl"],
+        removedLabelIds: ["lbl-state-intake", "lbl-impl", "lbl-state-code-review", "lbl-state-deployment"],
       });
     });
 
@@ -717,6 +731,7 @@ describe("complete", () => {
       stateId: "state-done",
       delegateId: null,
       assigneeId: null,
+      removedLabelIds: ["lbl-agent-review", "lbl-human-review"],
     });
     expect(result.state).toBe("Done");
     expect(result.delegate).toBeNull();
@@ -740,7 +755,7 @@ describe("complete", () => {
         stateId: "state-done",
         delegateId: null,
         assigneeId: null,
-        removedLabelIds: ["lbl-agent-review"],
+        removedLabelIds: ["lbl-agent-review", "lbl-human-review"],
       });
     });
 
@@ -754,7 +769,7 @@ describe("complete", () => {
         stateId: "state-done",
         delegateId: null,
         assigneeId: null,
-        removedLabelIds: ["lbl-human-review"],
+        removedLabelIds: ["lbl-agent-review", "lbl-human-review"],
       });
     });
 
@@ -784,18 +799,18 @@ describe("complete", () => {
         stateId: "state-done",
         delegateId: null,
         assigneeId: null,
+        removedLabelIds: ["lbl-agent-review", "lbl-human-review"],
       });
-      expect(mockResolveLabelIds).not.toHaveBeenCalled();
     });
 
-    it("does not touch labels when issue has no labels", async () => {
+    it("resolves removal labels even when issue has no labels (AI-1389)", async () => {
       await complete("AI-100");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
         stateId: "state-done",
         delegateId: null,
         assigneeId: null,
+        removedLabelIds: ["lbl-agent-review", "lbl-human-review"],
       });
-      expect(mockResolveLabelIds).not.toHaveBeenCalled();
     });
   });
 });
