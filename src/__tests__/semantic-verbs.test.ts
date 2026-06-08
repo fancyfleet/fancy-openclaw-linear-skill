@@ -160,7 +160,6 @@ describe("dev-impl semantic verbs", () => {
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
         stateId: "state-doing",
         addedLabelIds: ["label-implementation"],
-        removedLabelIds: ["label-intake", "label-code-review", "label-deployment"],
       });
       expect(result.command).toBe("accept");
       expect(result.state).toBe("In Progress");
@@ -391,14 +390,13 @@ describe("dev-impl semantic verbs", () => {
       expect(result.state).toBe("Backlog");
     });
 
-    it("includes removedLabelIds for all state:* labels even when issue has none (AI-1389)", async () => {
+    it("omits removedLabelIds when issue has no state:* labels (API rejects non-present removal)", async () => {
       const result = await escape("AI-200");
       expectIntentSetAndCleared("escape");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
         stateId: "state-backlog",
         delegateId: null,
         assigneeId: null,
-        removedLabelIds: ["label-intake", "label-implementation", "label-code-review", "label-deployment"],
       });
       expect(result.command).toBe("escape");
     });
