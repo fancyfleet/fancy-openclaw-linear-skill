@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 // Refuses to build when the live symlinked repo is on a non-main branch
 // or has uncommitted changes. Dev work must use a git worktree.
+// Skipped in CI (GitHub Actions) where checkouts are always clean.
 const { execSync } = require('child_process');
+
+// CI environments always do clean, correct checkouts — guard not needed there.
+if (process.env.CI) process.exit(0);
 
 let branch, dirty;
 try {
