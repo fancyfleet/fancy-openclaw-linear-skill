@@ -291,7 +291,8 @@ describe("dev-impl semantic verbs", () => {
     it("sets intent to 'deploy', transitions to done, clears ownership (no addedLabelIds — done is terminal)", async () => {
       const result = await deploy("AI-200");
       expectIntentSetAndCleared("deploy");
-      // baseIssue has no labels, so removeLabelsIfPresent is a no-op (no removedLabelIds).
+      // baseIssue has no labels — removedLabelIds is filtered to only present labels,
+      // so it's empty and not sent.
       // done is a terminal state with no state:* label, so no addedLabelIds either.
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
         stateId: "state-done",
@@ -384,7 +385,7 @@ describe("dev-impl semantic verbs", () => {
       expect(result.state).toBe("Backlog");
     });
 
-    it("no removedLabelIds when issue has no state:* labels", async () => {
+    it("omits removedLabelIds when issue has no state:* labels (API rejects non-present removal)", async () => {
       const result = await escape("AI-200");
       expectIntentSetAndCleared("escape");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
@@ -411,7 +412,8 @@ describe("dev-impl semantic verbs", () => {
     it("sets intent to 'demote', transitions to backlog, clears ownership", async () => {
       const result = await demote("AI-200");
       expectIntentSetAndCleared("demote");
-      // baseIssue has no labels — removeLabelsIfPresent is a no-op
+      // baseIssue has no labels — removedLabelIds is filtered to only present labels,
+      // so it's empty and not sent.
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
         stateId: "state-backlog",
         delegateId: null,

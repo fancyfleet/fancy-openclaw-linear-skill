@@ -143,6 +143,12 @@ beforeEach(() => {
     const map: Record<string, string> = {
       "gate:agent-review": "lbl-agent-review",
       "gate:human-review": "lbl-human-review",
+      "state:intake": "lbl-state-intake",
+      "state:implementation": "lbl-state-impl",
+      "state:code-review": "lbl-state-code-review",
+      "state:deployment": "lbl-state-deployment",
+      "state:done": "lbl-state-done",
+      "wf:dev-impl": "lbl-wf-dev-impl",
     };
     const ids: string[] = [];
     const missing: string[] = [];
@@ -665,6 +671,9 @@ describe("handoffWork", () => {
           "gate:agent-review": "lbl-agent-review",
           "gate:human-review": "lbl-human-review",
           "state:implementation": "lbl-impl",
+          "state:intake": "lbl-state-intake",
+          "state:code-review": "lbl-state-code-review",
+          "state:deployment": "lbl-state-deployment",
         };
         return names.map((n) => map[n.toLowerCase()] ?? `lbl-unknown-${n}`);
       });
@@ -785,17 +794,15 @@ describe("complete", () => {
         delegateId: null,
         assigneeId: null,
       });
-      expect(mockResolveLabelIds).not.toHaveBeenCalled();
     });
 
-    it("does not touch labels when issue has no labels", async () => {
+    it("omits removedLabelIds when issue has no review gate labels (AI-1389 new behavior)", async () => {
       await complete("AI-100");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
         stateId: "state-done",
         delegateId: null,
         assigneeId: null,
       });
-      expect(mockResolveLabelIds).not.toHaveBeenCalled();
     });
   });
 });
