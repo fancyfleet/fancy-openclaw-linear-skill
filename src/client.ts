@@ -1,6 +1,6 @@
 import axios from "axios";
 
-import { ensureApiKey } from "./auth";
+import { ensureApiKey, resolveAgentName } from "./auth";
 import { debugDump, isDebugMode } from "./debug";
 
 const LINEAR_API_URL = "https://api.linear.app/graphql";
@@ -40,14 +40,14 @@ export function setProxyTarget(target: string | undefined): void {
 /**
  * Extra headers to attach when routing through the proxy so it can identify
  * the calling agent for logging and enforcement (Phase 2, design.md §11).
+ *
+ * Uses resolveAgentName() from auth.ts so the proxy header and the secret
+ * file lookup can never drift — both derive identity from the same sources.
  */
 function proxyHeaders(): Record<string, string> {
   const proxyUrl = process.env.LINEAR_PROXY_URL;
   if (!proxyUrl) return {};
-  const agentId =
-    process.env.OPENCLAW_MCP_AGENT_ID ??
-    process.env.OPENCLAW_AGENT_NAME ??
-    "unknown";
+  const agentId = resolveAgentName().name ?? "unknown";
   const headers: Record<string, string> = { "X-Openclaw-Agent": agentId };
   if (_proxyIntent) headers["X-Openclaw-Linear-Intent"] = _proxyIntent;
   if (_proxyTarget) headers["X-Openclaw-Linear-Target"] = _proxyTarget;

@@ -1,4 +1,4 @@
-import { checkAuth, resolveAgentName } from "../auth";
+import { checkAuth, resolveAgentName, resolveAgentNameFromCwd } from "../auth";
 import { LinearApiError, linearGraphQL } from "../client";
 
 jest.mock("../client", () => ({
@@ -64,6 +64,7 @@ describe("resolveAgentName", () => {
   const ENV_KEYS = ["OPENCLAW_MCP_AGENT_ID", "OPENCLAW_AGENT_NAME", "HOME"] as const;
   const saved: Partial<Record<typeof ENV_KEYS[number], string | undefined>> = {};
   let warnSpy: jest.SpyInstance;
+  let cwdSpy: jest.SpyInstance;
 
   beforeEach(() => {
     for (const key of ENV_KEYS) {
@@ -71,6 +72,7 @@ describe("resolveAgentName", () => {
       delete process.env[key];
     }
     warnSpy = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+    cwdSpy = jest.spyOn(process, "cwd").mockReturnValue("/tmp/no-linear-secrets-cwd");
   });
 
   afterEach(() => {
@@ -79,6 +81,7 @@ describe("resolveAgentName", () => {
       else process.env[key] = saved[key];
     }
     warnSpy.mockRestore();
+    cwdSpy.mockRestore();
   });
 
   it("uses OPENCLAW_MCP_AGENT_ID as primary", () => {
@@ -93,9 +96,40 @@ describe("resolveAgentName", () => {
     expect(resolveAgentName().name).toBe("astrid");
   });
 
-  it("returns no name when no env source is set", () => {
-    process.env.HOME = "/home/fancymatt";
+  it("falls back to cwd when both env vars are unset", () => {
+    cwdSpy.mockReturnValue("/home/node/.openclaw/workspace/igor");
+    expect(resolveAgentName().name).toBe("igor");
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("returns no name when no source is available (bare workspace cwd)", () => {
+    cwdSpy.mockReturnValue("/home/node/.openclaw/workspace");
     expect(resolveAgentName().name).toBeUndefined();
+  });
+
+  it("resolves from cwd with nested subdirectory", () => {
+    cwdSpy.mockReturnValue("/home/node/.openclaw/workspace/felix/tmp/x");
+    expect(resolveAgentName().name).toBe("felix");
+  });
+
+  it("resolves from cwd with trailing slash", () => {
+    cwdSpy.mockReturnValue("/home/node/.openclaw/workspace/noah/");
+    expect(resolveAgentName().name).toBe("noah");
+  });
+
+  it("warns when env and cwd disagree and uses env (highest priority)", () => {
+    process.env.OPENCLAW_AGENT_NAME = "charles";
+    cwdSpy.mockReturnValue("/home/node/.openclaw/workspace/igor");
+    expect(resolveAgentName().name).toBe("charles");
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toContain("disagree");
+  });
+
+  it("does not warn when env and cwd agree", () => {
+    process.env.OPENCLAW_AGENT_NAME = "igor";
+    cwdSpy.mockReturnValue("/home/node/.openclaw/workspace/igor");
+    expect(resolveAgentName().name).toBe("igor");
+    expect(warnSpy).not.toHaveBeenCalled();
   });
 
   it("warns when sources disagree and uses highest priority", () => {
@@ -111,5 +145,63 @@ describe("resolveAgentName", () => {
     process.env.OPENCLAW_AGENT_NAME = "charles";
     expect(resolveAgentName().name).toBe("charles");
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("includes cwd source in the returned sources array", () => {
+    cwdSpy.mockReturnValue("/home/node/.openclaw/workspace/sage");
+    const result = resolveAgentName();
+    expect(result.sources).toEqual([
+      { source: "cwd", value: "sage" },
+    ]);
+  });
+
+  it("orders sources correctly: env before cwd", () => {
+    process.env.OPENCLAW_AGENT_NAME = "igor";
+    cwdSpy.mockReturnValue("/home/node/.openclaw/workspace/igor");
+    const result = resolveAgentName();
+    expect(result.sources[0]).toEqual({ source: "OPENCLAW_AGENT_NAME", value: "igor" });
+    expect(result.sources[1]).toEqual({ source: "cwd", value: "igor" });
+  });
+});
+
+describe("resolveAgentNameFromCwd", () => {
+  let cwdSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    cwdSpy = jest.spyOn(process, "cwd").mockReturnValue("/tmp");
+  });
+
+  afterEach(() => {
+    cwdSpy.mockRestore();
+  });
+
+  it("resolves agent name from standard workspace path", () => {
+    cwdSpy.mockReturnValue("/home/node/.openclaw/workspace/igor");
+    expect(resolveAgentNameFromCwd()).toBe("igor");
+  });
+
+  it("resolves from nested subdirectory within agent workspace", () => {
+    cwdSpy.mockReturnValue("/home/node/.openclaw/workspace/felix/tmp/deep/nested");
+    expect(resolveAgentNameFromCwd()).toBe("felix");
+  });
+
+  it("returns undefined for bare workspace directory (main agent)", () => {
+    cwdSpy.mockReturnValue("/home/node/.openclaw/workspace");
+    expect(resolveAgentNameFromCwd()).toBeUndefined();
+  });
+
+  it("returns undefined for workspace directory with trailing slash", () => {
+    cwdSpy.mockReturnValue("/home/node/.openclaw/workspace/");
+    expect(resolveAgentNameFromCwd()).toBeUndefined();
+  });
+
+  it("returns undefined for unrelated cwd", () => {
+    cwdSpy.mockReturnValue("/tmp/some/random/path");
+    expect(resolveAgentNameFromCwd()).toBeUndefined();
+  });
+
+  it("rejects dot-prefixed segments", () => {
+    cwdSpy.mockReturnValue("/home/node/.openclaw/workspace/.hidden");
+    expect(resolveAgentNameFromCwd()).toBeUndefined();
   });
 });

@@ -21,6 +21,7 @@ interface AgentNameSource {
  * Priority (highest first):
  *   1. OPENCLAW_MCP_AGENT_ID — set by the OpenClaw MCP runtime when invoking the skill
  *   2. OPENCLAW_AGENT_NAME — explicit user override
+ *   3. process.cwd() — derive from workspace directory (multi-agent containers)
  *
  * If multiple sources resolve to different names, a warning is logged and the
  * highest-priority source wins. This prevents silent wrong-agent token selection.
@@ -34,6 +35,12 @@ export function resolveAgentName(): { name?: string; sources: AgentNameSource[] 
   const agentName = process.env.OPENCLAW_AGENT_NAME?.trim();
   if (agentName) sources.push({ source: "OPENCLAW_AGENT_NAME", value: agentName.toLowerCase() });
 
+  // Cwd-based fallback: derive agent name from the workspace directory.
+  // OpenClaw bash tool runs with PWD = {configDir}/workspace/{agentId}.
+  // When cwd is the bare workspace dir (main agent), we do NOT resolve a name.
+  const cwdName = resolveAgentNameFromCwd();
+  if (cwdName) sources.push({ source: "cwd", value: cwdName.toLowerCase() });
+
   const distinct = [...new Set(sources.map((s) => s.value))];
   if (distinct.length > 1) {
     const detail = sources.map((s) => `${s.source}=${s.value}`).join(", ");
@@ -45,6 +52,33 @@ export function resolveAgentName(): { name?: string; sources: AgentNameSource[] 
   }
 
   return { name: sources[0]?.value, sources };
+}
+
+/**
+ * Derive agent name from process.cwd().
+ *
+ * The OpenClaw bash tool sets PWD = {configDir}/workspace/{agentId} for
+ * non-main agents and {configDir}/workspace for the main agent. We extract
+ * the segment immediately after "workspace" to identify the agent.
+ *
+ * Returns undefined when cwd is the bare workspace dir (main agent) or
+ * when the path doesn't match the expected layout.
+ */
+export function resolveAgentNameFromCwd(): string | undefined {
+  const cwd = process.cwd();
+  // Normalize to forward slashes (Windows compat)
+  const normalized = cwd.replace(/\\/g, "/");
+
+  // Match .../workspace/<name> or .../workspace/<name>/...
+  // but NOT .../workspace alone (that's the main agent).
+  const match = normalized.match(/\/workspace\/([^\/]+)(?:\/|$)/);
+  if (!match) return undefined;
+
+  const segment = match[1];
+  // Reject obvious non-agent segments (dotfiles, hidden dirs, etc.)
+  if (segment.startsWith(".")) return undefined;
+
+  return segment;
 }
 
 function secretFileCandidates(): string[] {
