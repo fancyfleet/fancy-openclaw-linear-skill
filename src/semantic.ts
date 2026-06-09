@@ -923,7 +923,13 @@ export async function escape(
       commentFile: options?.commentFile,
       forceDuplicate: options?.forceDuplicate,
     }, {
-      targetState: "backlog",
+      // escape is a TERMINAL state (dev-impl.yaml). It must land in a native
+      // terminal (canceled-type "Invalid") state — mirroring how `done` lands
+      // in native Done — so the connector treats the ticket as terminal and
+      // stops dispatching. Landing in "backlog" (non-terminal) while stripping
+      // all state:* labels but keeping wf:dev-impl produced a governed,
+      // stateless, non-terminal ticket that the connector trapped and looped on.
+      targetState: "invalid",
       commentMode: "optional",
       clearDelegate: true,
       clearAssignee: true,

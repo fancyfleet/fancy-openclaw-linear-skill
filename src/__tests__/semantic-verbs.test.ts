@@ -96,6 +96,7 @@ const doingState = { id: "state-doing", name: "In Progress", type: "started" };
 const thinkingState = { id: "state-thinking", name: "In Progress", type: "started" };
 const doneState = { id: "state-done", name: "Done", type: "completed" };
 const backlogState = { id: "state-backlog", name: "Backlog", type: "backlog" };
+const invalidState = { id: "state-invalid", name: "Invalid", type: "canceled" };
 
 beforeEach(() => {
   jest.resetAllMocks();
@@ -124,6 +125,7 @@ beforeEach(() => {
       todo: todoState,
       done: doneState,
       backlog: backlogState,
+      invalid: invalidState,
     };
     return map[semantic] ?? todoState;
   });
@@ -389,7 +391,7 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("escape", () => {
-    it("sets intent to 'escape', transitions to backlog, clears ownership, strips any state:* label present", async () => {
+    it("sets intent to 'escape', transitions to native terminal (Invalid), clears ownership, strips any state:* label present", async () => {
       mockGetIssue.mockResolvedValue({
         ...baseIssue,
         labels: [{ id: "label-code-review", name: "state:code-review", color: "#000" }],
@@ -397,20 +399,20 @@ describe("dev-impl semantic verbs", () => {
       const result = await escape("AI-200");
       expectIntentSetAndCleared("escape");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
-        stateId: "state-backlog",
+        stateId: "state-invalid",
         delegateId: null,
         assigneeId: null,
         removedLabelIds: ["label-code-review"],
       }));
       expect(result.command).toBe("escape");
-      expect(result.state).toBe("Backlog");
+      expect(result.state).toBe("Invalid");
     });
 
     it("omits removedLabelIds when issue has no state:* labels (API rejects non-present removal)", async () => {
       const result = await escape("AI-200");
       expectIntentSetAndCleared("escape");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        stateId: "state-backlog",
+        stateId: "state-invalid",
         delegateId: null,
         assigneeId: null,
       });
@@ -595,7 +597,7 @@ describe("dev-impl semantic verbs", () => {
       requestChanges: "doing",
       deploy: "done",
       reject: "doing",
-      escape: "backlog",
+      escape: "invalid",
       demote: "backlog",
     };
 
