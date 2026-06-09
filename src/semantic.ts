@@ -314,6 +314,23 @@ export async function handoffWork(
 ): Promise<SemanticResult> {
   await guardMattEscalation(issueId, delegateName, options);
 
+  // Governed-workflow guard: handoff-work is a GENERIC handoff that resets native
+  // state to To Do and strips dev-impl state:* labels (see removeLabelsIfPresent
+  // below). Running it on a wf:dev-impl ticket corrupts the workflow projection —
+  // it leaves the ticket governed but state-less, which silently disabled the
+  // deploy/Done gates and let work bypass review. A governed ticket must only move
+  // via its workflow verbs. Refuse here and point the caller at the right command.
+  const guardIssue = await getIssue(issueId);
+  const isGoverned = (guardIssue.labels ?? []).some((l) => l.name === "wf:dev-impl");
+  if (isGoverned) {
+    throw new Error(
+      `'handoff-work' is not allowed on workflow ticket ${guardIssue.identifier} (wf:dev-impl): it would strip the ticket's ` +
+      `state:* label and reset its column, corrupting the workflow projection. Use a workflow verb instead:\n` +
+      `  • advance the ticket (assigns the next owner) → 'accept' / 'submit' / 'approve' / 'request-changes' / 'reject' / 'deploy'\n` +
+      `  • leave the workflow → 'escape' (break-glass) or 'demote'.`
+    );
+  }
+
   let comment = options?.comment;
   let commentFile = options?.commentFile;
   if (options?.reviewHandoff) {
@@ -328,16 +345,15 @@ export async function handoffWork(
       }
     }
 
-    const issue = await getIssue(issueId);
-    const teamId = issue.team?.id;
+    const teamId = guardIssue.team?.id;
     if (!teamId) {
-      throw new Error(`Issue ${issue.identifier} has no team — cannot apply ${AGENT_REVIEW_LABEL}.`);
+      throw new Error(`Issue ${guardIssue.identifier} has no team — cannot apply ${AGENT_REVIEW_LABEL}.`);
     }
     try {
       await resolveLabelIds(teamId, [AGENT_REVIEW_LABEL]);
     } catch {
       throw new Error(
-        `--review-handoff requires the "${AGENT_REVIEW_LABEL}" label on team ${issue.team?.key ?? teamId}, but it doesn't exist. ` +
+        `--review-handoff requires the "${AGENT_REVIEW_LABEL}" label on team ${guardIssue.team?.key ?? teamId}, but it doesn't exist. ` +
         `Create it via the GraphQL issueLabelCreate mutation (see agent-review-handoff-convention.md for the recipe), then re-run.`
       );
     }

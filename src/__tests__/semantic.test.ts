@@ -532,6 +532,28 @@ describe("beginWork", () => {
 });
 
 describe("handoffWork", () => {
+  it("refuses on a governed wf:dev-impl ticket (would corrupt workflow projection)", async () => {
+    mockGetIssue.mockResolvedValue({
+      ...baseIssue,
+      labels: [
+        { id: "lbl-wf", name: "wf:dev-impl" },
+        { id: "lbl-state", name: "state:code-review" },
+      ],
+    });
+    await expect(handoffWork("AI-100", "Charles (CTO)", { comment: "Your turn." }))
+      .rejects.toThrow(/not allowed on workflow ticket AI-100 \(wf:dev-impl\)/);
+    // Must refuse BEFORE any mutation/comment.
+    expect(mockUpdateIssue).not.toHaveBeenCalled();
+    expect(mockAddComment).not.toHaveBeenCalled();
+  });
+
+  it("allows handoff on a non-governed ticket (no wf:dev-impl label)", async () => {
+    mockGetIssue.mockResolvedValue({ ...baseIssue, labels: [{ id: "lbl-bug", name: "bug" }] });
+    const result = await handoffWork("AI-100", "Charles (CTO)", { comment: "Your turn." });
+    expect(result.commentPosted).toBe(true);
+    expect(mockUpdateIssue).toHaveBeenCalled();
+  });
+
   it("sets status=Todo, delegate=agent, clears assignee, posts comment", async () => {
     const result = await handoffWork("AI-100", "Charles (CTO)", { comment: "Your turn." });
     expect(mockAddComment).toHaveBeenCalledWith("AI-100", "Your turn.");
