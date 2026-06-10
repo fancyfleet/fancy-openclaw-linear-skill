@@ -390,6 +390,28 @@ describe("dev-impl semantic verbs", () => {
       await expect(reject("AI-200", { comment: "Rejected." })).rejects.toThrow("API error");
       expect(mockSetProxyIntent).toHaveBeenCalledWith(undefined);
     });
+
+    it("re-delegates to --target when provided, routing to a named implementer (AI-1495, app user)", async () => {
+      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-igor", name: "Igor (Back End Dev)", app: true });
+      await reject("AI-200", { comment: "Build is red.", target: "Igor (Back End Dev)" });
+      const call = mockUpdateIssue.mock.calls[0][1] as any;
+      expect(call.delegateId).toBe("user-igor");
+      // app-user delegate → assigneeId omitted (AI-1395)
+      expect(call.assigneeId).toBeUndefined();
+    });
+
+    it("re-delegates to --target when provided (AI-1495, non-app user)", async () => {
+      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-charles", name: "Charles (CTO)", app: false });
+      await reject("AI-200", { comment: "Build is red.", target: "Charles (CTO)" });
+      const call = mockUpdateIssue.mock.calls[0][1] as any;
+      expect(call.delegateId).toBe("user-charles");
+    });
+
+    it("does not include delegateId when no --target is provided (role-routing handles owner)", async () => {
+      await reject("AI-200", { comment: "Build is red." });
+      const call = mockUpdateIssue.mock.calls[0][1] as any;
+      expect(call.delegateId).toBeUndefined();
+    });
   });
 
   describe("escape", () => {

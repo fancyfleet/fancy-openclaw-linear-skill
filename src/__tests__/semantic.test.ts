@@ -663,59 +663,35 @@ describe("handoffWork", () => {
     expect(call.assigneeId).toBeUndefined();
   });
 
-  it("strips state:implementation label on dev-impl tickets to prevent column/label divergence (AI-1395)", async () => {
+  it("preserves the state:* projection label and native column on a dev-impl handoff — owner change is not a state change (AI-1494)", async () => {
       mockGetIssue.mockResolvedValue({
         ...baseIssue,
         labels: [{ id: "lbl-impl", name: "state:implementation", color: "#0f0" }],
       });
-      mockResolveLabelIds.mockImplementation(async (_teamId: string, names: string[]) => {
-        const map: Record<string, string> = {
-          "gate:agent-review": "lbl-agent-review",
-          "gate:human-review": "lbl-human-review",
-          "state:implementation": "lbl-impl",
-          "state:intake": "lbl-state-intake",
-          "state:code-review": "lbl-state-code-review",
-          "state:deployment": "lbl-state-deployment",
-        };
-        return names.map((n) => map[n.toLowerCase()] ?? `lbl-unknown-${n}`);
-      });
       await handoffWork("AI-100", "Charles (CTO)", { comment: "Handing back." });
-      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
-        stateId: "state-todo",
-        delegateId: "user-charles",
-        assigneeId: null,
-        removedLabelIds: ["lbl-impl"],
-      });
+      const call = mockUpdateIssue.mock.calls[0][1] as any;
+      // Only the delegate changes. The native column (stateId) is left to the proxy
+      // (omitted here), the active state:* label is NOT stripped, and assignee is not
+      // cleared — sending stateId/assigneeId/labelIds would trip the proxy's
+      // raw-mutation interception and drop the projection.
+      expect(call.delegateId).toBe("user-charles");
+      expect(call.stateId).toBeUndefined();
+      expect(call.removedLabelIds).toBeUndefined();
+      expect(call.addedLabelIds).toBeUndefined();
+      expect(call.assigneeId).toBeUndefined();
     });
 
-  it("succeeds when ticket is missing some candidate removal labels — no validation error (AI-1404)", async () => {
-    // Ticket only has state:intake; handoff config wants to remove state:* and gate:* labels.
-    // Linear throws if removedLabelIds includes IDs not on the issue, so the name-filter must
-    // drop any labels absent from the issue before resolving IDs.
+  it("does not strip or resolve any state:* label on a dev-impl handoff (AI-1494 supersedes the AI-1404 strip path)", async () => {
     mockGetIssue.mockResolvedValue({
       ...baseIssue,
       labels: [{ id: "lbl-intake", name: "state:intake", color: "#00f" }],
     });
-    mockResolveLabelIds.mockImplementation(async (_teamId: string, names: string[]) => {
-      const map: Record<string, string> = {
-        "state:intake": "lbl-intake",
-        "state:implementation": "lbl-impl",
-        "state:code-review": "lbl-cr",
-        "state:deployment": "lbl-deploy",
-        "gate:agent-review": "lbl-agent-review",
-        "gate:human-review": "lbl-human-review",
-      };
-      return names.map((n) => map[n.toLowerCase()] ?? `lbl-unknown-${n}`);
-    });
     await handoffWork("AI-100", "Charles (CTO)", { comment: "Only intake label present." });
     const call = mockUpdateIssue.mock.calls[0][1] as any;
-    // Only state:intake was on the issue, so only its ID should appear in removedLabelIds
-    expect(call.removedLabelIds).toEqual(["lbl-intake"]);
-    // resolveLabelIds must NOT have been called with the absent labels
-    const resolveCall = mockResolveLabelIds.mock.calls[0];
-    expect(resolveCall[1]).not.toContain("state:implementation");
-    expect(resolveCall[1]).not.toContain("state:code-review");
-    expect(resolveCall[1]).not.toContain("state:deployment");
+    // The intake projection is preserved — no removal, no label resolution at all.
+    expect(call.removedLabelIds).toBeUndefined();
+    expect(call.stateId).toBeUndefined();
+    expect(mockResolveLabelIds).not.toHaveBeenCalled();
   });
   });
 });

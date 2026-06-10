@@ -316,6 +316,8 @@ export async function handoffWork(
 
   let comment = options?.comment;
   let commentFile = options?.commentFile;
+  const issue = await getIssue(issueId);
+
   if (options?.reviewHandoff) {
     if (commentFile) {
       const raw = (await fs.readFile(commentFile, "utf8")).trim();
@@ -328,7 +330,6 @@ export async function handoffWork(
       }
     }
 
-    const issue = await getIssue(issueId);
     const teamId = issue.team?.id;
     if (!teamId) {
       throw new Error(`Issue ${issue.identifier} has no team — cannot apply ${AGENT_REVIEW_LABEL}.`);
@@ -341,6 +342,46 @@ export async function handoffWork(
         `Create it via the GraphQL issueLabelCreate mutation (see agent-review-handoff-convention.md for the recipe), then re-run.`
       );
     }
+  }
+
+  // AI-1494: a generic handoff on a live wf:dev-impl ticket is an OWNER change,
+  // not a STATE change. The previous behavior reset the native column to "To Do"
+  // and stripped the `state:*` projection label, mis-rendering the board and
+  // tripping the p65 "no state:* label" wedge. Preserve the state projection:
+  // change only the delegate, leave the native column and the active state:*
+  // label untouched. We send delegateId-only (no stateId, no assigneeId, no
+  // labelIds) so the connector proxy's raw-mutation interception passes it
+  // through as a benign owner change rather than blocking it as a bypass.
+  const DEV_IMPL_STATE_TARGET: Record<string, string> = {
+    "state:intake": "todo",
+    "state:implementation": "doing",
+    "state:code-review": "thinking",
+    "state:deployment": "doing",
+  };
+  const activeStateLabel = (issue.labels ?? [])
+    .map((l) => l.name.toLowerCase())
+    .find((n) => n in DEV_IMPL_STATE_TARGET);
+
+  if (activeStateLabel && !options?.reviewHandoff) {
+    return executeTransition("handoffWork", {
+      issueId,
+      comment,
+      commentFile,
+      userName: delegateName,
+      commandName: "handoff-work",
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      // targetState resolves the current native state (a no-op for the column);
+      // omitStateId suppresses the write so the proxy stays the sole native writer.
+      targetState: DEV_IMPL_STATE_TARGET[activeStateLabel],
+      commentMode: "optional-with-warning",
+      delegateName: (args) => args.userName,
+      commentFirst: true,
+      omitStateId: true,
+      // Intentionally NOT clearing assignee and NOT stripping the state:* label:
+      // sending assigneeId/labelIds would trip the proxy's raw-mutation block and
+      // dropping the label is exactly the regression this fixes.
+    });
   }
 
   return executeTransition("handoffWork", {
@@ -878,7 +919,7 @@ export async function deploy(
  */
 export async function reject(
   issueId: string,
-  options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+  options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }
 ): Promise<SemanticResult> {
   const body = await (async () => {
     if (options.commentFile) {
@@ -893,21 +934,26 @@ export async function reject(
   if (!body) {
     throw new Error("reject requires --comment <text>.");
   }
+  const target = options.target;
+  setProxyTarget(target);
   setProxyIntent("reject");
   try {
     return await executeTransition("reject", {
       issueId,
       comment: body,
       forceDuplicate: options.forceDuplicate,
+      userName: target,
     }, {
       targetState: "doing",
       commentMode: "required",
       omitStateId: true,
       addLabels: ["state:implementation"],
       removeLabelsIfPresent: ["state:intake", "state:code-review", "state:deployment"],
+      ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
     setProxyIntent(undefined);
+    setProxyTarget(undefined);
   }
 }
 
