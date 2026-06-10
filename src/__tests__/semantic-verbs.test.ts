@@ -106,8 +106,9 @@ beforeEach(() => {
   );
   mockGetSelfUser.mockResolvedValue({ id: "user-igor", name: "Igor (Back End Dev)", email: "igor@test.com" });
   mockResolveUserWithHints.mockImplementation(async (name: string) => {
-    const users: Record<string, { id: string; name: string }> = {
+    const users: Record<string, { id: string; name: string; app?: boolean }> = {
       "Charles (CTO)": { id: "user-charles", name: "Charles (CTO)" },
+      "Hanzo (Repo Manager)": { id: "user-hanzo", name: "Hanzo (Repo Manager)", app: true },
     };
     const user = users[name];
     if (!user) throw new Error(`Could not uniquely resolve Linear user "${name}".`);
@@ -225,14 +226,23 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("approve", () => {
-    it("sets intent to 'approve', transitions to doing, and applies state:deployment label", async () => {
+    it("sets intent to 'approve', transitions to doing, applies state:deployment label, and auto-delegates to Hanzo", async () => {
       const result = await approve("AI-200");
       expectIntentSetAndCleared("approve");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
         stateId: "state-doing",
         addedLabelIds: ["label-deployment"],
+        delegateId: "user-hanzo",
       });
       expect(result.command).toBe("approve");
+    });
+
+    it("auto-delegates to the deployment body so the reviewer is never stranded (AI-1464)", async () => {
+      await approve("AI-200");
+      const call = mockUpdateIssue.mock.calls[0][1] as any;
+      expect(call.delegateId).toBe("user-hanzo");
+      // Hanzo is an app user — assigneeId must be omitted to satisfy Linear (AI-1395).
+      expect(call.assigneeId).toBeUndefined();
     });
 
     it("clears intent even on error", async () => {
@@ -483,6 +493,7 @@ describe("dev-impl semantic verbs", () => {
         stateId: "state-doing",
         addedLabelIds: ["label-deployment"],
         removedLabelIds: ["label-code-review"],
+        delegateId: "user-hanzo",
       });
     });
 

@@ -783,6 +783,10 @@ export async function approve(
       commentMode: "optional",
       addLabels: ["state:deployment"],
       removeLabelsIfPresent: ["state:intake", "state:implementation", "state:code-review"],
+      // Deployment requires deploy:execute (Hanzo only). Auto-delegate to the
+      // deployment body so the reviewer is never stranded as delegate of a
+      // state they can neither act on nor hand off from (AI-1464).
+      delegateName: "Hanzo (Repo Manager)",
     });
   } finally {
     setProxyIntent(undefined);
