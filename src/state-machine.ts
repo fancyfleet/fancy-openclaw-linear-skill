@@ -258,6 +258,15 @@ export interface StateTransition {
    * label not on the issue is a harmless no-op (AI-1389).
    */
   removeLabelsIfPresent?: string[];
+  /**
+   * AI-1498: Do NOT write the native `stateId` in this transition's mutation.
+   * Set on governed dev-impl verbs (accept/submit/approve/request-changes/deploy/
+   * reject/escape/demote): the connector proxy is the SOLE atomic writer of the
+   * native column (folded into its one issueUpdate alongside label + delegate), so
+   * the CLI must not also write stateId or the two writers drift. The target state
+   * is still resolved for idempotency/position checks; only the write is suppressed.
+   */
+  omitStateId?: boolean;
 }
 
 export interface TransitionArgs {
@@ -573,7 +582,10 @@ export async function executeTransition(
   }
 
   // 8. Build update payload
-  const updatePayload: Record<string, any> = { stateId: state.id };
+  // AI-1498: governed dev-impl verbs omit stateId — the connector proxy is the
+  // sole atomic writer of the native column. All other (non-governed) commands
+  // still write stateId here, since the proxy forwards them unchanged.
+  const updatePayload: Record<string, any> = config.omitStateId ? {} : { stateId: state.id };
   if (delegateId !== undefined) updatePayload.delegateId = delegateId;
   if (assigneeId !== undefined) updatePayload.assigneeId = assigneeId;
   if (addedLabelIds?.length) updatePayload.addedLabelIds = addedLabelIds;

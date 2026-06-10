@@ -156,13 +156,14 @@ function expectIntentSetAndCleared(intent: string): void {
 
 describe("dev-impl semantic verbs", () => {
   describe("accept", () => {
-    it("sets intent to 'accept', transitions to doing, and applies state:implementation label", async () => {
+    it("sets intent to 'accept', applies state:implementation label, and omits stateId (AI-1498: proxy writes the native column)", async () => {
       const result = await accept("AI-200");
       expectIntentSetAndCleared("accept");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        stateId: "state-doing",
         addedLabelIds: ["label-implementation"],
       });
+      // AI-1498 AC#2: the CLI must not write stateId on governed dev-impl verbs.
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
       expect(result.command).toBe("accept");
       expect(result.state).toBe("In Progress");
     });
@@ -202,13 +203,13 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("submit", () => {
-    it("sets intent to 'submit', transitions to thinking, and applies state:code-review label", async () => {
+    it("sets intent to 'submit', applies state:code-review label, and omits stateId (AI-1498)", async () => {
       const result = await submit("AI-200");
       expectIntentSetAndCleared("submit");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        stateId: "state-thinking",
         addedLabelIds: ["label-code-review"],
       });
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
       expect(result.command).toBe("submit");
     });
 
@@ -225,13 +226,13 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("approve", () => {
-    it("sets intent to 'approve', transitions to doing, and applies state:deployment label", async () => {
+    it("sets intent to 'approve', applies state:deployment label, and omits stateId (AI-1498)", async () => {
       const result = await approve("AI-200");
       expectIntentSetAndCleared("approve");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        stateId: "state-doing",
         addedLabelIds: ["label-deployment"],
       });
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
       expect(result.command).toBe("approve");
     });
 
@@ -248,14 +249,14 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("request-changes", () => {
-    it("sets intent to 'request-changes', transitions to doing, and applies state:implementation label", async () => {
+    it("sets intent to 'request-changes', applies state:implementation label, and omits stateId (AI-1498)", async () => {
       const result = await requestChanges("AI-200", { comment: "Needs more tests." });
       expectIntentSetAndCleared("request-changes");
       expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Needs more tests.");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        stateId: "state-doing",
         addedLabelIds: ["label-implementation"],
       });
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
       expect(result.command).toBe("requestChanges");
     });
 
@@ -311,17 +312,18 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("deploy", () => {
-    it("sets intent to 'deploy', transitions to done, clears ownership (no addedLabelIds — done is terminal)", async () => {
+    it("sets intent to 'deploy', clears ownership, and omits stateId (AI-1498; no addedLabelIds — done is terminal)", async () => {
       const result = await deploy("AI-200");
       expectIntentSetAndCleared("deploy");
       // baseIssue has no labels — removedLabelIds is filtered to only present labels,
       // so it's empty and not sent.
       // done is a terminal state with no state:* label, so no addedLabelIds either.
+      // AI-1498: stateId is no longer written by the CLI — the proxy moves the column.
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        stateId: "state-done",
         delegateId: null,
         assigneeId: null,
       });
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
       expect(result.command).toBe("deploy");
       expect(result.state).toBe("Done");
     });
@@ -355,9 +357,9 @@ describe("dev-impl semantic verbs", () => {
       expectIntentSetAndCleared("reject");
       expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Build is red.");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        stateId: "state-doing",
         addedLabelIds: ["label-implementation"],
       });
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
       expect(result.command).toBe("reject");
     });
 
@@ -399,11 +401,11 @@ describe("dev-impl semantic verbs", () => {
       const result = await escape("AI-200");
       expectIntentSetAndCleared("escape");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
-        stateId: "state-invalid",
         delegateId: null,
         assigneeId: null,
         removedLabelIds: ["label-code-review"],
       }));
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
       expect(result.command).toBe("escape");
       expect(result.state).toBe("Invalid");
     });
@@ -412,10 +414,10 @@ describe("dev-impl semantic verbs", () => {
       const result = await escape("AI-200");
       expectIntentSetAndCleared("escape");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        stateId: "state-invalid",
         delegateId: null,
         assigneeId: null,
       });
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
       expect(result.command).toBe("escape");
     });
 
@@ -438,10 +440,10 @@ describe("dev-impl semantic verbs", () => {
       // baseIssue has no labels — removedLabelIds is filtered to only present labels,
       // so it's empty and not sent.
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        stateId: "state-backlog",
         delegateId: null,
         assigneeId: null,
       });
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
       expect(result.command).toBe("demote");
       expect(result.state).toBe("Backlog");
     });
@@ -480,10 +482,10 @@ describe("dev-impl semantic verbs", () => {
       });
       await approve("AI-200");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        stateId: "state-doing",
         addedLabelIds: ["label-deployment"],
         removedLabelIds: ["label-code-review"],
       });
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
     });
 
     it("submit: swaps state:implementation → state:code-review atomically when label is present", async () => {
@@ -493,10 +495,10 @@ describe("dev-impl semantic verbs", () => {
       });
       await submit("AI-200");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        stateId: "state-thinking",
         addedLabelIds: ["label-code-review"],
         removedLabelIds: ["label-implementation"],
       });
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
     });
 
     it("reject: swaps state:deployment → state:implementation atomically when label is present", async () => {
@@ -506,10 +508,10 @@ describe("dev-impl semantic verbs", () => {
       });
       await reject("AI-200", { comment: "Deployment failed." });
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        stateId: "state-doing",
         addedLabelIds: ["label-implementation"],
         removedLabelIds: ["label-deployment"],
       });
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
     });
   });
 

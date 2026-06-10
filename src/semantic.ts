@@ -718,6 +718,7 @@ export async function accept(
     }, {
       targetState: "doing",
       commentMode: "optional",
+      omitStateId: true,
       addLabels: ["state:implementation"],
       removeLabelsIfPresent: ["state:intake", "state:code-review", "state:deployment"],
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
@@ -751,6 +752,7 @@ export async function submit(
     }, {
       targetState: "thinking",
       commentMode: "optional",
+      omitStateId: true,
       addLabels: ["state:code-review"],
       removeLabelsIfPresent: ["state:intake", "state:implementation", "state:deployment"],
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
@@ -781,6 +783,7 @@ export async function approve(
     }, {
       targetState: "doing",
       commentMode: "optional",
+      omitStateId: true,
       addLabels: ["state:deployment"],
       removeLabelsIfPresent: ["state:intake", "state:implementation", "state:code-review"],
     });
@@ -825,6 +828,7 @@ export async function requestChanges(
     }, {
       targetState: "doing",
       commentMode: "required",
+      omitStateId: true,
       addLabels: ["state:implementation"],
       removeLabelsIfPresent: ["state:intake", "state:code-review", "state:deployment"],
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
@@ -855,6 +859,7 @@ export async function deploy(
     }, {
       targetState: "done",
       commentMode: "optional",
+      omitStateId: true,
       clearDelegate: true,
       clearAssignee: true,
       removeLabelsIfPresent: ["state:intake", "state:implementation", "state:code-review", "state:deployment"],
@@ -897,6 +902,7 @@ export async function reject(
     }, {
       targetState: "doing",
       commentMode: "required",
+      omitStateId: true,
       addLabels: ["state:implementation"],
       removeLabelsIfPresent: ["state:intake", "state:code-review", "state:deployment"],
     });
@@ -931,6 +937,7 @@ export async function escape(
       // stateless, non-terminal ticket that the connector trapped and looped on.
       targetState: "invalid",
       commentMode: "optional",
+      omitStateId: true,
       clearDelegate: true,
       clearAssignee: true,
       removeLabelsIfPresent: ["state:intake", "state:implementation", "state:code-review", "state:deployment"],
@@ -960,6 +967,7 @@ export async function demote(
     }, {
       targetState: "backlog",
       commentMode: "optional",
+      omitStateId: true,
       clearDelegate: true,
       clearAssignee: true,
       removeLabelsIfPresent: ["state:intake", "state:implementation", "state:code-review", "state:deployment", "wf:dev-impl"],
