@@ -373,7 +373,15 @@ export async function executeTransition(
   if (config.skipIfStatePositionAheadOfTarget) {
     const currentPosition = issue.state?.position ?? null;
     const targetPosition = state.position ?? null;
-    if (currentPosition !== null && targetPosition !== null && currentPosition > targetPosition) {
+    // Only apply the advancement guard when the current state is "started" or "completed".
+    // "unstarted" states (To Do, Backlog) can have higher position numbers than "started"
+    // states (Thinking, Doing) due to how Linear orders custom states — a To Do ticket
+    // sitting at position 1000 is NOT "ahead" of Thinking at position -1076; it's simply
+    // waiting to be picked up. Skipping the guard for unstarted states prevents
+    // consider-work from being a no-op when called on an unstarted ticket.
+    const currentStateType = issue.state?.type ?? null;
+    const currentIsUnstarted = currentStateType === "unstarted";
+    if (!currentIsUnstarted && currentPosition !== null && targetPosition !== null && currentPosition > targetPosition) {
       const result = nullResult(issue.state?.name ?? "Unknown");
       if (config.includeContext) {
         result.context = await buildObserveContext(issue);
