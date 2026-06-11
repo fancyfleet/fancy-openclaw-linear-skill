@@ -28,6 +28,24 @@ const REVIEW_HANDOFF_PREFIX = "[Review Handoff]";
 const BACKLOG_CONSIDER_WORK_ERROR = "Ticket is in Backlog — cannot consider work. Use `linear observe-issue` to view, or wait for promotion to To Do.";
 const BACKLOG_FORCE_WARNING = "⚠️  Warning: forced past Backlog gate for consider-work. This ticket was explicitly parked.";
 
+// All dev-impl `state:*` projection labels (v8). A transition stamps exactly
+// one of these and strips every other one, so the board can never show two
+// pipeline-stage labels at once. Keep in sync with dev-impl.yaml states.
+const DEV_IMPL_STATE_LABELS = [
+  "state:intake",
+  "state:write-tests",
+  "state:implementation",
+  "state:code-review",
+  "state:deployment",
+  "state:host-deploy",
+  "state:ac-validate",
+] as const;
+
+/** Every dev-impl state:* label except the one being stamped. */
+function otherStateLabels(keep: string): string[] {
+  return DEV_IMPL_STATE_LABELS.filter((l) => l !== keep);
+}
+
 function isBacklogState(state?: { name?: string | null } | null): boolean {
   return (state?.name ?? "").toLowerCase() === "backlog";
 }
@@ -352,12 +370,13 @@ export async function handoffWork(
   // label untouched. We send delegateId-only (no stateId, no assigneeId, no
   // labelIds) so the connector proxy's raw-mutation interception passes it
   // through as a benign owner change rather than blocking it as a bypass.
-  const DEV_IMPL_STATE_TARGET: Record<string, string> = {
-    "state:intake": "todo",
-    "state:implementation": "doing",
-    "state:code-review": "thinking",
-    "state:deployment": "doing",
-  };
+  // v8: native status is a pure engagement overlay — every active dev-impl
+  // stage rests at To Do. A generic owner-change handoff resolves the resting
+  // native state (a no-op for the column, suppressed via omitStateId) and only
+  // changes the delegate, leaving the state:* projection label untouched.
+  const DEV_IMPL_STATE_TARGET: Record<string, string> = Object.fromEntries(
+    DEV_IMPL_STATE_LABELS.map((l) => [l, "todo"]),
+  );
   const activeStateLabel = (issue.labels ?? [])
     .map((l) => l.name.toLowerCase())
     .find((n) => n in DEV_IMPL_STATE_TARGET);
@@ -730,24 +749,27 @@ export async function parkWork(
   }
 }
 
-// --- Dev-impl workflow semantic verbs (AI-1362) ---
-// These 8 verbs map to the transitions in dev-impl.yaml. Each sets the
+// --- Dev-impl workflow semantic verbs (AI-1362; v8 2026-06-10) ---
+// These verbs map to the transitions in dev-impl.yaml. Each sets the
 // x-openclaw-linear-intent header so the proxy/gate can enforce legal moves.
-// request-changes and reject require a --comment (the proxy carries feedback
-// via the comment body; no separate header or --category flag).
+// request-changes, reject, and ac-fail require a --comment (the proxy carries
+// feedback via the comment body; no separate header or --category flag).
+// v8 spine: intake →accept→ write-tests →tests-ready→ implementation →submit→
+//   code-review →approve→ deployment →deploy→ ac-validate →validated→ done
+//   (deployment may →handoff-host-deploy→ host-deploy →host-deployed→ ac-validate).
+// Native stateId is suppressed (omitStateId) on all governed verbs — the proxy
+// is the sole atomic writer, resting every active stage at To Do.
 
 /**
  * linear accept <id>
  *
- * Accept a ticket from intake into implementation.
- * dev-impl: intake → implementation (steward action)
+ * Accept a ticket from intake into the test-writing phase.
+ * dev-impl: intake → write-tests (steward action; auto-assigns the test-author).
  */
 export async function accept(
   issueId: string,
-  target?: string,
   options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
 ): Promise<SemanticResult> {
-  setProxyTarget(target);
   setProxyIntent("accept");
   try {
     return await executeTransition("accept", {
@@ -755,13 +777,45 @@ export async function accept(
       comment: options?.comment,
       commentFile: options?.commentFile,
       forceDuplicate: options?.forceDuplicate,
+    }, {
+      targetState: "todo",
+      commentMode: "optional",
+      omitStateId: true,
+      addLabels: ["state:write-tests"],
+      removeLabelsIfPresent: otherStateLabels("state:write-tests"),
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
+}
+
+/**
+ * linear tests-ready <id> [target]
+ *
+ * Failing tests covering the in-scope AC are written; hand to an implementer.
+ * dev-impl: write-tests → implementation (test-author action; dev is multi-body
+ * so a target implementer is required and validated by the proxy).
+ */
+export async function testsReady(
+  issueId: string,
+  target?: string,
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<SemanticResult> {
+  setProxyTarget(target);
+  setProxyIntent("tests-ready");
+  try {
+    return await executeTransition("testsReady", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
       userName: target,
     }, {
-      targetState: "doing",
+      targetState: "todo",
       commentMode: "optional",
       omitStateId: true,
       addLabels: ["state:implementation"],
-      removeLabelsIfPresent: ["state:intake", "state:code-review", "state:deployment"],
+      removeLabelsIfPresent: otherStateLabels("state:implementation"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -791,11 +845,11 @@ export async function submit(
       forceDuplicate: options?.forceDuplicate,
       userName: target,
     }, {
-      targetState: "thinking",
+      targetState: "todo",
       commentMode: "optional",
       omitStateId: true,
       addLabels: ["state:code-review"],
-      removeLabelsIfPresent: ["state:intake", "state:implementation", "state:deployment"],
+      removeLabelsIfPresent: otherStateLabels("state:code-review"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -822,11 +876,11 @@ export async function approve(
       commentFile: options?.commentFile,
       forceDuplicate: options?.forceDuplicate,
     }, {
-      targetState: "doing",
+      targetState: "todo",
       commentMode: "optional",
       omitStateId: true,
       addLabels: ["state:deployment"],
-      removeLabelsIfPresent: ["state:intake", "state:implementation", "state:code-review"],
+      removeLabelsIfPresent: otherStateLabels("state:deployment"),
     });
   } finally {
     setProxyIntent(undefined);
@@ -867,11 +921,11 @@ export async function requestChanges(
       forceDuplicate: options.forceDuplicate,
       userName: target,
     }, {
-      targetState: "doing",
+      targetState: "todo",
       commentMode: "required",
       omitStateId: true,
       addLabels: ["state:implementation"],
-      removeLabelsIfPresent: ["state:intake", "state:code-review", "state:deployment"],
+      removeLabelsIfPresent: otherStateLabels("state:implementation"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -883,8 +937,10 @@ export async function requestChanges(
 /**
  * linear deploy <id>
  *
- * Deploy after approval, completing the workflow.
- * dev-impl: deployment → done (deployment action, requires deploy:execute capability)
+ * Merge the release (CI auto-deploys), then hand to the AC-validation gate.
+ * dev-impl: deployment → ac-validate (deployment action, requires deploy:execute
+ * capability; high-stakes tickets require a human sign-off, enforced by the proxy).
+ * No longer terminal — ac-validate re-verifies the deployed artifact before done.
  */
 export async function deploy(
   issueId: string,
@@ -898,15 +954,153 @@ export async function deploy(
       commentFile: options?.commentFile,
       forceDuplicate: options?.forceDuplicate,
     }, {
+      targetState: "todo",
+      commentMode: "optional",
+      omitStateId: true,
+      addLabels: ["state:ac-validate"],
+      removeLabelsIfPresent: otherStateLabels("state:ac-validate"),
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
+}
+
+/**
+ * linear handoff-host-deploy <id>
+ *
+ * Merge alone is not enough — a bare-metal/host action is required (restart the
+ * connector + roll the CLI, run migrations, push a TestFlight build). The
+ * deployment container has no host access, so hand to the host-deploy owner.
+ * dev-impl: deployment → host-deploy (deployment action; auto-assigns Grover).
+ */
+export async function handoffHostDeploy(
+  issueId: string,
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<SemanticResult> {
+  setProxyIntent("handoff-host-deploy");
+  try {
+    return await executeTransition("handoffHostDeploy", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      targetState: "todo",
+      commentMode: "optional",
+      omitStateId: true,
+      addLabels: ["state:host-deploy"],
+      removeLabelsIfPresent: otherStateLabels("state:host-deploy"),
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
+}
+
+/**
+ * linear host-deployed <id>
+ *
+ * The bare-metal half of deployment is done; hand to the AC-validation gate.
+ * dev-impl: host-deploy → ac-validate (host-deploy action, requires infra:ssh;
+ * high-stakes tickets require a human sign-off, enforced by the proxy).
+ */
+export async function hostDeployed(
+  issueId: string,
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<SemanticResult> {
+  setProxyIntent("host-deployed");
+  try {
+    return await executeTransition("hostDeployed", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      targetState: "todo",
+      commentMode: "optional",
+      omitStateId: true,
+      addLabels: ["state:ac-validate"],
+      removeLabelsIfPresent: otherStateLabels("state:ac-validate"),
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
+}
+
+/**
+ * linear validated <id>
+ *
+ * The deployed artifact satisfies the captured acceptance criteria in real
+ * conditions — close the ticket.
+ * dev-impl: ac-validate → done (steward action, terminal).
+ */
+export async function validated(
+  issueId: string,
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<SemanticResult> {
+  setProxyIntent("validated");
+  try {
+    return await executeTransition("validated", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
+    }, {
       targetState: "done",
       commentMode: "optional",
       omitStateId: true,
       clearDelegate: true,
       clearAssignee: true,
-      removeLabelsIfPresent: ["state:intake", "state:implementation", "state:code-review", "state:deployment"],
+      removeLabelsIfPresent: [...DEV_IMPL_STATE_LABELS],
     });
   } finally {
     setProxyIntent(undefined);
+  }
+}
+
+/**
+ * linear ac-fail <id>
+ *
+ * AC validation failed against the deployed artifact — send back to
+ * implementation with feedback.
+ * dev-impl: ac-validate → implementation (steward action). Requires --comment.
+ */
+export async function acFail(
+  issueId: string,
+  options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }
+): Promise<SemanticResult> {
+  const body = await (async () => {
+    if (options.commentFile) {
+      try {
+        return (await fs.readFile(options.commentFile, "utf8")).trim();
+      } catch {
+        return "";
+      }
+    }
+    return options.comment?.trim() ?? "";
+  })();
+  if (!body) {
+    throw new Error("ac-fail requires --comment <text>.");
+  }
+  const target = options.target;
+  setProxyTarget(target);
+  setProxyIntent("ac-fail");
+  try {
+    return await executeTransition("acFail", {
+      issueId,
+      comment: body,
+      forceDuplicate: options.forceDuplicate,
+      userName: target,
+    }, {
+      targetState: "todo",
+      commentMode: "required",
+      omitStateId: true,
+      addLabels: ["state:implementation"],
+      removeLabelsIfPresent: otherStateLabels("state:implementation"),
+      ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
+    });
+  } finally {
+    setProxyIntent(undefined);
+    setProxyTarget(undefined);
   }
 }
 
@@ -944,11 +1138,11 @@ export async function reject(
       forceDuplicate: options.forceDuplicate,
       userName: target,
     }, {
-      targetState: "doing",
+      targetState: "todo",
       commentMode: "required",
       omitStateId: true,
       addLabels: ["state:implementation"],
-      removeLabelsIfPresent: ["state:intake", "state:code-review", "state:deployment"],
+      removeLabelsIfPresent: otherStateLabels("state:implementation"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -986,7 +1180,7 @@ export async function escape(
       omitStateId: true,
       clearDelegate: true,
       clearAssignee: true,
-      removeLabelsIfPresent: ["state:intake", "state:implementation", "state:code-review", "state:deployment"],
+      removeLabelsIfPresent: [...DEV_IMPL_STATE_LABELS],
     });
   } finally {
     setProxyIntent(undefined);
@@ -1016,7 +1210,7 @@ export async function demote(
       omitStateId: true,
       clearDelegate: true,
       clearAssignee: true,
-      removeLabelsIfPresent: ["state:intake", "state:implementation", "state:code-review", "state:deployment", "wf:dev-impl"],
+      removeLabelsIfPresent: [...DEV_IMPL_STATE_LABELS, "wf:dev-impl"],
     });
   } finally {
     setProxyIntent(undefined);
