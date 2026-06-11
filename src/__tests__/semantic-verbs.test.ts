@@ -17,10 +17,15 @@ import { resolveLabelIds } from "../labels";
 import { findSemanticState, SEMANTIC_STATE_MAP } from "../states";
 import {
   accept,
+  testsReady,
   submit,
   approve,
   requestChanges,
   deploy,
+  handoffHostDeploy,
+  hostDeployed,
+  validated,
+  acFail,
   reject,
   escape,
   demote,
@@ -74,9 +79,12 @@ const mockResolveLabelIds = resolveLabelIds as jest.MockedFunction<typeof resolv
 // Maps state:* and wf:* label names to stable mock IDs for assertion.
 const LABEL_ID_MAP: Record<string, string> = {
   "state:intake": "label-intake",
+  "state:write-tests": "label-write-tests",
   "state:implementation": "label-implementation",
   "state:code-review": "label-code-review",
   "state:deployment": "label-deployment",
+  "state:host-deploy": "label-host-deploy",
+  "state:ac-validate": "label-ac-validate",
   "state:escape": "label-escape",
   "wf:dev-impl": "label-wf-dev-impl",
 };
@@ -108,6 +116,7 @@ beforeEach(() => {
   mockResolveUserWithHints.mockImplementation(async (name: string) => {
     const users: Record<string, { id: string; name: string }> = {
       "Charles (CTO)": { id: "user-charles", name: "Charles (CTO)" },
+      "Igor (Back End Dev)": { id: "user-igor", name: "Igor (Back End Dev)" },
     };
     const user = users[name];
     if (!user) throw new Error(`Could not uniquely resolve Linear user "${name}".`);
@@ -156,16 +165,16 @@ function expectIntentSetAndCleared(intent: string): void {
 
 describe("dev-impl semantic verbs", () => {
   describe("accept", () => {
-    it("sets intent to 'accept', applies state:implementation label, and omits stateId (AI-1498: proxy writes the native column)", async () => {
+    it("sets intent to 'accept', applies state:write-tests label, and omits stateId (AI-1498: proxy writes the native column)", async () => {
       const result = await accept("AI-200");
       expectIntentSetAndCleared("accept");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        addedLabelIds: ["label-implementation"],
+        addedLabelIds: ["label-write-tests"],
       });
       // AI-1498 AC#2: the CLI must not write stateId on governed dev-impl verbs.
       expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
       expect(result.command).toBe("accept");
-      expect(result.state).toBe("In Progress");
+      expect(result.state).toBe("Todo");
     });
 
     it("clears intent even on error", async () => {
@@ -312,20 +321,20 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("deploy", () => {
-    it("sets intent to 'deploy', clears ownership, and omits stateId (AI-1498; no addedLabelIds — done is terminal)", async () => {
+    it("sets intent to 'deploy', applies state:ac-validate label, omits stateId, and does not clear ownership (v8: ac-validate auto-assigns Astrid)", async () => {
       const result = await deploy("AI-200");
       expectIntentSetAndCleared("deploy");
-      // baseIssue has no labels — removedLabelIds is filtered to only present labels,
-      // so it's empty and not sent.
-      // done is a terminal state with no state:* label, so no addedLabelIds either.
+      // v8: deployment → ac-validate (no longer terminal). The CLI applies the
+      // state:ac-validate label and leaves ownership for the connector to
+      // auto-assign the singleton steward (Astrid).
       // AI-1498: stateId is no longer written by the CLI — the proxy moves the column.
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        delegateId: null,
-        assigneeId: null,
+        addedLabelIds: ["label-ac-validate"],
       });
       expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
+      expect((mockUpdateIssue.mock.calls[0][1] as any).delegateId).toBeUndefined();
       expect(result.command).toBe("deploy");
-      expect(result.state).toBe("Done");
+      expect(result.state).toBe("Todo");
     });
 
     it("strips state:deployment label when present", async () => {
@@ -348,6 +357,221 @@ describe("dev-impl semantic verbs", () => {
     it("posts optional comment", async () => {
       await deploy("AI-200", { comment: "Deployed to production." });
       expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Deployed to production.");
+    });
+  });
+
+  describe("testsReady (v8: write-tests → implementation)", () => {
+    it("sets intent to 'tests-ready', applies state:implementation label, omits stateId", async () => {
+      const result = await testsReady("AI-200", "Igor (Back End Dev)");
+      expectIntentSetAndCleared("tests-ready");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        addedLabelIds: ["label-implementation"],
+      }));
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
+      expect(result.command).toBe("testsReady");
+      expect(result.state).toBe("In Progress");
+    });
+
+    it("re-delegates to --target (dev is multi-body, target required)", async () => {
+      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-igor", name: "Igor (Back End Dev)", app: true });
+      await testsReady("AI-200", "Igor (Back End Dev)");
+      const call = mockUpdateIssue.mock.calls[0][1] as any;
+      expect(call.delegateId).toBe("user-igor");
+      expect(call.assigneeId).toBeUndefined();
+    });
+
+    it("does not include delegateId when no target is provided", async () => {
+      await testsReady("AI-200");
+      const call = mockUpdateIssue.mock.calls[0][1] as any;
+      expect(call.delegateId).toBeUndefined();
+    });
+
+    it("swaps state:write-tests → state:implementation when label present", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [{ id: "label-write-tests", name: "state:write-tests", color: "#000" }],
+      });
+      await testsReady("AI-200", "Igor (Back End Dev)");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        addedLabelIds: ["label-implementation"],
+        removedLabelIds: ["label-write-tests"],
+      }));
+    });
+
+    it("clears intent even on error", async () => {
+      mockUpdateIssue.mockRejectedValueOnce(new Error("API error"));
+      await expect(testsReady("AI-200")).rejects.toThrow("API error");
+      expect(mockSetProxyIntent).toHaveBeenCalledWith(undefined);
+    });
+  });
+
+  describe("handoffHostDeploy (v8: deployment → host-deploy)", () => {
+    it("sets intent to 'handoff-host-deploy', applies state:host-deploy label, omits stateId, leaves ownership for connector auto-assign", async () => {
+      const result = await handoffHostDeploy("AI-200");
+      expectIntentSetAndCleared("handoff-host-deploy");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
+        addedLabelIds: ["label-host-deploy"],
+      });
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
+      expect((mockUpdateIssue.mock.calls[0][1] as any).delegateId).toBeUndefined();
+      expect(result.command).toBe("handoffHostDeploy");
+      expect(result.state).toBe("Todo");
+    });
+
+    it("swaps state:deployment → state:host-deploy when label present", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [{ id: "label-deployment", name: "state:deployment", color: "#000" }],
+      });
+      await handoffHostDeploy("AI-200");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        addedLabelIds: ["label-host-deploy"],
+        removedLabelIds: ["label-deployment"],
+      }));
+    });
+
+    it("clears intent even on error", async () => {
+      mockUpdateIssue.mockRejectedValueOnce(new Error("API error"));
+      await expect(handoffHostDeploy("AI-200")).rejects.toThrow("API error");
+      expect(mockSetProxyIntent).toHaveBeenCalledWith(undefined);
+    });
+
+    it("posts optional comment", async () => {
+      await handoffHostDeploy("AI-200", { comment: "Needs connector restart." });
+      expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Needs connector restart.");
+    });
+  });
+
+  describe("hostDeployed (v8: host-deploy → ac-validate)", () => {
+    it("sets intent to 'host-deployed', applies state:ac-validate label, omits stateId, leaves ownership for connector auto-assign", async () => {
+      const result = await hostDeployed("AI-200");
+      expectIntentSetAndCleared("host-deployed");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
+        addedLabelIds: ["label-ac-validate"],
+      });
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
+      expect((mockUpdateIssue.mock.calls[0][1] as any).delegateId).toBeUndefined();
+      expect(result.command).toBe("hostDeployed");
+      expect(result.state).toBe("Todo");
+    });
+
+    it("swaps state:host-deploy → state:ac-validate when label present", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [{ id: "label-host-deploy", name: "state:host-deploy", color: "#000" }],
+      });
+      await hostDeployed("AI-200");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        addedLabelIds: ["label-ac-validate"],
+        removedLabelIds: ["label-host-deploy"],
+      }));
+    });
+
+    it("clears intent even on error", async () => {
+      mockUpdateIssue.mockRejectedValueOnce(new Error("API error"));
+      await expect(hostDeployed("AI-200")).rejects.toThrow("API error");
+      expect(mockSetProxyIntent).toHaveBeenCalledWith(undefined);
+    });
+  });
+
+  describe("validated (v8: ac-validate → done, terminal)", () => {
+    it("sets intent to 'validated', transitions to Done, clears ownership, strips state:* labels", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [{ id: "label-ac-validate", name: "state:ac-validate", color: "#000" }],
+      });
+      const result = await validated("AI-200");
+      expectIntentSetAndCleared("validated");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        delegateId: null,
+        assigneeId: null,
+        removedLabelIds: ["label-ac-validate"],
+      }));
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
+      expect(result.command).toBe("validated");
+      expect(result.state).toBe("Done");
+    });
+
+    it("omits removedLabelIds when issue has no state:* labels", async () => {
+      await validated("AI-200");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
+        delegateId: null,
+        assigneeId: null,
+      });
+    });
+
+    it("clears intent even on error", async () => {
+      mockUpdateIssue.mockRejectedValueOnce(new Error("API error"));
+      await expect(validated("AI-200")).rejects.toThrow("API error");
+      expect(mockSetProxyIntent).toHaveBeenCalledWith(undefined);
+    });
+
+    it("posts optional comment", async () => {
+      await validated("AI-200", { comment: "AC verified on the deployed build." });
+      expect(mockAddComment).toHaveBeenCalledWith("AI-200", "AC verified on the deployed build.");
+    });
+  });
+
+  describe("acFail (v8: ac-validate → implementation)", () => {
+    it("sets intent to 'ac-fail', applies state:implementation label, omits stateId", async () => {
+      const result = await acFail("AI-200", { comment: "Search returns stale results on the live build." });
+      expectIntentSetAndCleared("ac-fail");
+      expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Search returns stale results on the live build.");
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        addedLabelIds: ["label-implementation"],
+      }));
+      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
+      expect(result.command).toBe("acFail");
+    });
+
+    it("hard-refuses without --comment", async () => {
+      await expect(acFail("AI-200", {})).rejects.toThrow("ac-fail requires --comment");
+      expect(mockSetProxyIntent).not.toHaveBeenCalled();
+      expect(mockUpdateIssue).not.toHaveBeenCalled();
+      expect(mockAddComment).not.toHaveBeenCalled();
+    });
+
+    it("hard-refuses with whitespace-only comment", async () => {
+      await expect(acFail("AI-200", { comment: "   " })).rejects.toThrow("ac-fail requires --comment");
+      expect(mockUpdateIssue).not.toHaveBeenCalled();
+    });
+
+    it("accepts comment from file", async () => {
+      jest.spyOn(fs, "readFile").mockResolvedValueOnce("Deployed artifact fails AC #3.");
+      await acFail("AI-200", { commentFile: "/tmp/acfail.md" });
+      expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Deployed artifact fails AC #3.");
+    });
+
+    it("swaps state:ac-validate → state:implementation when label present", async () => {
+      mockGetIssue.mockResolvedValue({
+        ...baseIssue,
+        labels: [{ id: "label-ac-validate", name: "state:ac-validate", color: "#000" }],
+      });
+      await acFail("AI-200", { comment: "Fails AC." });
+      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
+        addedLabelIds: ["label-implementation"],
+        removedLabelIds: ["label-ac-validate"],
+      }));
+    });
+
+    it("re-delegates to --target when provided (app user)", async () => {
+      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-igor", name: "Igor (Back End Dev)", app: true });
+      await acFail("AI-200", { comment: "Fails AC.", target: "Igor (Back End Dev)" });
+      const call = mockUpdateIssue.mock.calls[0][1] as any;
+      expect(call.delegateId).toBe("user-igor");
+      expect(call.assigneeId).toBeUndefined();
+    });
+
+    it("does not include delegateId when no --target is provided", async () => {
+      await acFail("AI-200", { comment: "Fails AC." });
+      const call = mockUpdateIssue.mock.calls[0][1] as any;
+      expect(call.delegateId).toBeUndefined();
+    });
+
+    it("clears intent even on error after comment validation passes", async () => {
+      mockUpdateIssue.mockRejectedValueOnce(new Error("API error"));
+      await expect(acFail("AI-200", { comment: "Fails AC." })).rejects.toThrow("API error");
+      expect(mockSetProxyIntent).toHaveBeenCalledWith(undefined);
     });
   });
 
@@ -615,11 +839,16 @@ describe("dev-impl semantic verbs", () => {
 
   describe("targetState guard — every verb targets a real SEMANTIC_STATE_MAP key", () => {
     const VERB_TARGET_STATES: Record<string, string> = {
-      accept: "doing",
+      accept: "todo",
+      testsReady: "doing",
       submit: "thinking",
       approve: "doing",
       requestChanges: "doing",
-      deploy: "done",
+      deploy: "todo",
+      handoffHostDeploy: "todo",
+      hostDeployed: "todo",
+      validated: "done",
+      acFail: "doing",
       reject: "doing",
       escape: "invalid",
       demote: "backlog",

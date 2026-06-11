@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { checkAuth, linearDoctor } from "./auth";
 import { getMyBlocked } from "./blocked";
 import { getBoard, getRecentlyDone, getReviewQueue, getStalled } from "./boards";
-import { considerWork, refuseWork, beginWork, handoffWork, complete, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, submit, approve, requestChanges, deploy, reject, escape, demote } from "./semantic";
+import { considerWork, refuseWork, beginWork, handoffWork, complete, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote } from "./semantic";
 import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, updateIssue, verifyComment } from "./issues";
 import { attachIssueToMilestone, attachIssueToProject, attachIssueToProjectById, createMilestone, createProject, editProject, findProjectByName, getProjectDetail, getProjectIssues, listMilestones, listProjects } from "./projects";
 import { createBlockingRelation, listRelations, removeBlockingRelation, removeParentIssue, setParentIssue } from "./relations";
@@ -894,13 +894,23 @@ async function main(): Promise<void> {
   // --- Dev-impl workflow semantic verbs (AI-1362) ---
 
   program.command("accept").argument("<id>")
-    .argument("[target]", "Implementer body to assign (e.g. felix, sage)")
+    .argument("[target]", "Optional target (test-author is a singleton; auto-assigned by the connector)")
     .option("--comment <msg>", INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
-    .description("Accept a ticket from intake into implementation (dev-impl: intake → implementation)")
+    .description("Accept a ticket from intake into write-tests (dev-impl: intake → write-tests)")
     .action(async (id: string, target: string | undefined, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
       await runCommand(async () => accept(id, target, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("tests-ready").argument("<id>")
+    .argument("[target]", "Implementer body to assign (e.g. felix, noah, sage, igor) — required")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Failing tests are written and red; hand to an implementer (dev-impl: write-tests → implementation)")
+    .action(async (id: string, target: string | undefined, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => testsReady(id, target, options), program.opts<{ human?: boolean }>().human);
     });
 
   program.command("submit").argument("<id>")
@@ -936,9 +946,46 @@ async function main(): Promise<void> {
     .option("--comment <msg>", INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
-    .description("Deploy after approval (dev-impl: deployment → done)")
+    .description("Merge is sufficient (CI auto-deploys); advance to AC validation (dev-impl: deployment → ac-validate)")
     .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
       await runCommand(async () => deploy(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("handoff-host-deploy").argument("<id>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("A host-side deploy step is needed after merge (dev-impl: deployment → host-deploy)")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => handoffHostDeploy(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("host-deployed").argument("<id>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Host-side deploy completed; advance to AC validation (dev-impl: host-deploy → ac-validate)")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => hostDeployed(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("validated").argument("<id>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Deployed artifact satisfies the AC; close the ticket (dev-impl: ac-validate → done)")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => validated(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("ac-fail").argument("<id>")
+    .option("--comment <msg>", "Failure reason (required). " + INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file (overrides --comment)")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .option("--target <name>", "Override default implementer target")
+    .description("Deployed artifact fails the AC; send back to implementation (dev-impl: ac-validate → implementation). Requires --comment.")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }) => {
+      await runCommand(async () => acFail(id, options), program.opts<{ human?: boolean }>().human);
     });
 
   program.command("reject").argument("<id>")
