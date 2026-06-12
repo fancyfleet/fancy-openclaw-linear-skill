@@ -226,19 +226,24 @@ export async function refuseWork(
   delegateName: string,
   options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
 ): Promise<SemanticResult> {
-  return executeTransition("refuseWork", {
-    issueId,
-    comment: options?.comment,
-    commentFile: options?.commentFile,
-    userName: delegateName,
-    commandName: "refuse-work",
-    forceDuplicate: options?.forceDuplicate,
-  }, {
-    targetState: "todo",
-    commentMode: "optional-with-warning",
-    delegateName: (args) => args.userName,
-    commentFirst: true,
-  });
+  setProxyIntent("refuse-work");
+  try {
+    return await executeTransition("refuseWork", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      userName: delegateName,
+      commandName: "refuse-work",
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      targetState: "todo",
+      commentMode: "optional-with-warning",
+      delegateName: (args) => args.userName,
+      commentFirst: true,
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
 }
 
 /**
