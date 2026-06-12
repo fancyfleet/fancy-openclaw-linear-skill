@@ -1,4 +1,4 @@
-import { computeWordSimilarity, findRecentDuplicate, checkCommentRateLimit } from "../state-machine";
+import { computeWordSimilarity, computeContainment, findRecentDuplicate, checkCommentRateLimit } from "../state-machine";
 import { getSelfUser } from "../auth";
 import { getComments } from "../boards";
 
@@ -64,6 +64,43 @@ describe("computeWordSimilarity", () => {
     expect(computeWordSimilarity("", "")).toBeCloseTo(1.0);
     expect(computeWordSimilarity("hello", "")).toBeCloseTo(0.0);
     expect(computeWordSimilarity("", "hello")).toBeCloseTo(0.0);
+  });
+});
+
+// --- computeContainment (AI-1571) ---
+
+describe("computeContainment", () => {
+  it("returns 1.0 for identical bodies", () => {
+    expect(computeContainment("hello world foo", "hello world foo")).toBeCloseTo(1.0);
+  });
+
+  it("returns 1.0 when one body is a strict superset of the other", () => {
+    const small = "tests written and red";
+    const large = "tests written and red plus a lot of additional explanatory context here";
+    expect(computeContainment(small, large)).toBeCloseTo(1.0);
+    expect(computeContainment(large, small)).toBeCloseTo(1.0);
+  });
+
+  it("returns 0.0 for completely disjoint bodies", () => {
+    expect(computeContainment("alpha beta gamma", "delta epsilon zeta")).toBeCloseTo(0.0);
+  });
+
+  it("handles empty strings gracefully", () => {
+    expect(computeContainment("", "")).toBeCloseTo(1.0);
+    expect(computeContainment("hello", "")).toBeCloseTo(0.0);
+    expect(computeContainment("", "hello")).toBeCloseTo(0.0);
+  });
+
+  it("stays high for an expanded superset where Jaccard collapses", () => {
+    const existing = "tests written and red, six failing unit cases ready for implementation";
+    const incoming =
+      "tests written and red, six failing unit cases ready for implementation. " +
+      "Full breakdown: each scenario exercises suppression, validates threshold boundaries, " +
+      "and asserts behavior against expanded restructured superset comment bodies downstream.";
+    // The expansion drags Jaccard below the suppression threshold...
+    expect(computeWordSimilarity(existing, incoming)).toBeLessThan(0.8);
+    // ...but containment recognizes the earlier comment is fully restated.
+    expect(computeContainment(existing, incoming)).toBeCloseTo(1.0);
   });
 });
 
@@ -174,6 +211,44 @@ describe("AI-1084 exhibit replay", () => {
     const result = await findRecentDuplicate("issue-1", commentBody);
     expect(result).not.toBeNull();
     expect(result!.similarity).toBeCloseTo(1.0);
+  });
+});
+
+// --- AI-1571 containment regression (AI-1560 TDD duplicate pattern) ---
+
+describe("AI-1571 containment dedup", () => {
+  it("AC1: suppresses an expanded/restructured superset of a prior comment within the window", async () => {
+    // AI-1560: the TDD agent posted a 'tests written and red' comment, then 35s later
+    // posted a restructured/expanded version that re-said everything plus more detail.
+    // Jaccard fell below 0.80 because the union grew; containment catches it.
+    const existing =
+      "Tests written and red. Six failing unit cases cover the containment edge conditions, " +
+      "ready for the implementation phase.";
+    const incoming =
+      "Tests written and red. Six failing unit cases cover the containment edge conditions, " +
+      "ready for the implementation phase. Full breakdown below: each scenario exercises the " +
+      "suppression path, validates threshold boundaries, and asserts behavior against expanded " +
+      "restructured superset comment bodies so downstream regressions stay covered.";
+    // Confirm the old pure-Jaccard guard would have missed this.
+    expect(computeWordSimilarity(existing, incoming)).toBeLessThan(0.8);
+    mockGetComments.mockResolvedValue([makeComment(existing, 35)]);
+    const result = await findRecentDuplicate("issue-1", incoming);
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe("comment-35");
+  });
+
+  it("AC2: does not suppress genuinely different comments (no false positive)", async () => {
+    // Two distinct status updates of comparable length with low overlap — neither
+    // Jaccard nor containment should reach the threshold.
+    const existing =
+      "Investigating webhook fan-out behavior in the Linear connector hook dispatcher today.";
+    const incoming =
+      "Deploy executor finished; production build green and the service restarted cleanly afterward.";
+    expect(computeWordSimilarity(existing, incoming)).toBeLessThan(0.8);
+    expect(computeContainment(existing, incoming)).toBeLessThan(0.8);
+    mockGetComments.mockResolvedValue([makeComment(existing, 35)]);
+    const result = await findRecentDuplicate("issue-1", incoming);
+    expect(result).toBeNull();
   });
 });
 
