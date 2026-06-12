@@ -292,6 +292,45 @@ function isTerminalState(state?: { name?: string | null; type?: string | null } 
 }
 
 /**
+ * Workflow-advancement ordinal for a Linear state, used by the anti-stale-revert
+ * guard (AI-1394) to decide whether the current state is genuinely "further along"
+ * than a transition target.
+ *
+ * Deliberately does NOT use Linear's raw board `position` float: that value is
+ * arbitrary column ordering (teams reorder columns freely), so on team AI
+ * Thinking.position = -1076 sorts below To Do.position = 1000 and a raw-position
+ * comparison falsely treats To Do as "past" Thinking, silently no-op'ing
+ * consider-work (AI-1562).
+ *
+ * Ordering is by state `type` rank (backlog < unstarted < started < completed/
+ * canceled), refined within the `started` band by the known engagement
+ * progression name (Thinking → Doing → Managing) so a stale consider-work wake
+ * still cannot revert Doing back to Thinking.
+ */
+function stateAdvancementRank(state?: { name?: string | null; type?: string | null } | null): number {
+  const type = state?.type?.toLowerCase() ?? "";
+  const name = state?.name?.toLowerCase() ?? "";
+
+  if (isTerminalState(state)) return 100;
+
+  // Known engagement progression within the `started` band.
+  if (name === "thinking") return 10;
+  if (name === "doing" || name === "in progress" || name === "developing") return 11;
+  if (name === "managing") return 12;
+
+  switch (type) {
+    case "backlog":
+      return 0;
+    case "unstarted":
+      return 1;
+    case "started":
+      return 10;
+    default:
+      return 1;
+  }
+}
+
+/**
  * Whether the issue's current delegate/assignee already match what the
  * transition config would set. Used by the same-state idempotency guard so a
  * ticket that is already in the target state but has the wrong owner (e.g. a
@@ -438,15 +477,16 @@ export async function executeTransition(
   // 2. Resolve target state
   const state = await findSemanticState(teamId, config.targetState);
 
-  // 2.5. Position-based advancement guard: skip if the current state is already
-  //      further along in the workflow than the target state. This prevents
-  //      consider-work (target=thinking) from reverting a more-advanced state
-  //      (e.g. Doing, code-review, deployment) when a concurrent agent wake fires
-  //      after another agent has already advanced the ticket (AI-1394).
+  // 2.5. Advancement guard: skip if the current state is already further along
+  //      in the workflow than the target state. This prevents consider-work
+  //      (target=thinking) from reverting a more-advanced state (e.g. Doing,
+  //      code-review, deployment) when a concurrent agent wake fires after
+  //      another agent has already advanced the ticket (AI-1394). Ranking is by
+  //      state type/engagement order, NOT raw board position (AI-1562).
   if (config.skipIfStatePositionAheadOfTarget) {
-    const currentPosition = issue.state?.position ?? null;
-    const targetPosition = state.position ?? null;
-    if (currentPosition !== null && targetPosition !== null && currentPosition > targetPosition) {
+    const currentRank = stateAdvancementRank(issue.state);
+    const targetRank = stateAdvancementRank(state);
+    if (currentRank > targetRank) {
       const result = nullResult(issue.state?.name ?? "Unknown");
       if (config.includeContext) {
         result.context = await buildObserveContext(issue);
