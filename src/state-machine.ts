@@ -41,27 +41,56 @@ function stripMarkup(text: string): string {
 }
 
 /**
- * Word-overlap Jaccard similarity between two strings.
- * Returns a value in [0, 1]: 1.0 = identical word sets, 0.0 = disjoint.
+ * Tokenize a string into a normalized word set: strip markup, lowercase,
+ * split on whitespace, trim non-alphanumeric edges, drop empties.
  */
-export function computeWordSimilarity(a: string, b: string): number {
-  const tokenize = (s: string) => new Set(
+export function tokenizeWords(s: string): Set<string> {
+  return new Set(
     stripMarkup(s)
       .toLowerCase()
       .split(/\s+/)
       .map((w) => w.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, ""))
       .filter(Boolean)
   );
-  const setA = tokenize(a);
-  const setB = tokenize(b);
-  if (setA.size === 0 && setB.size === 0) return 1.0;
-  if (setA.size === 0 || setB.size === 0) return 0.0;
+}
+
+function intersectionSize(setA: Set<string>, setB: Set<string>): number {
   let intersection = 0;
   for (const word of setA) {
     if (setB.has(word)) intersection++;
   }
+  return intersection;
+}
+
+/**
+ * Word-overlap Jaccard similarity between two strings.
+ * Returns a value in [0, 1]: 1.0 = identical word sets, 0.0 = disjoint.
+ */
+export function computeWordSimilarity(a: string, b: string): number {
+  const setA = tokenizeWords(a);
+  const setB = tokenizeWords(b);
+  if (setA.size === 0 && setB.size === 0) return 1.0;
+  if (setA.size === 0 || setB.size === 0) return 0.0;
+  const intersection = intersectionSize(setA, setB);
   const union = setA.size + setB.size - intersection;
   return intersection / union;
+}
+
+/**
+ * Word-overlap containment (overlap) coefficient between two strings:
+ * intersection / min(|A|, |B|). Returns a value in [0, 1].
+ *
+ * Unlike Jaccard, this is robust to expansion/restructuring: a comment that is
+ * a superset of an earlier one scores 1.0 because every word of the smaller
+ * set is contained in the larger, even though the union (and thus Jaccard) grew.
+ */
+export function computeContainment(a: string, b: string): number {
+  const setA = tokenizeWords(a);
+  const setB = tokenizeWords(b);
+  if (setA.size === 0 && setB.size === 0) return 1.0;
+  if (setA.size === 0 || setB.size === 0) return 0.0;
+  const intersection = intersectionSize(setA, setB);
+  return intersection / Math.min(setA.size, setB.size);
 }
 
 /**
@@ -143,12 +172,14 @@ export async function findRecentDuplicate(
       if (ageMs > cutoffMs) break; // comments are sorted ascending; once too old, stop
       if (c.user.id !== self.id) continue;
       const similarity = computeWordSimilarity(c.body, body);
-      if (similarity >= COMMENT_SIMILARITY_THRESHOLD) {
+      const containment = computeContainment(c.body, body);
+      const score = Math.max(similarity, containment);
+      if (score >= COMMENT_SIMILARITY_THRESHOLD) {
         const ageSeconds = Math.round(ageMs / 1000);
         process.stderr.write(
-          `DUPLICATE_COMMENT_BLOCKED: similarity=${(similarity * 100).toFixed(0)}%, age=${ageSeconds}s, existingCommentId=${c.id}\n`
+          `DUPLICATE_COMMENT_BLOCKED: similarity=${(similarity * 100).toFixed(0)}%, containment=${(containment * 100).toFixed(0)}%, age=${ageSeconds}s, existingCommentId=${c.id}\n`
         );
-        return { id: c.id, createdAt: c.createdAt, similarity, ageSeconds };
+        return { id: c.id, createdAt: c.createdAt, similarity: score, ageSeconds };
       }
     }
   } catch {
