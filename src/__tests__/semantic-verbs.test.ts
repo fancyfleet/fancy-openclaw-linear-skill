@@ -31,6 +31,7 @@ import {
   demote,
   complete,
   parkWork,
+  refuseWork,
 } from "../semantic";
 import { setProxyIntent } from "../client";
 
@@ -903,6 +904,24 @@ describe("parkWork — proxy intent guard (AI-1392)", () => {
   it("clears intent even when executeTransition throws", async () => {
     mockUpdateIssue.mockRejectedValueOnce(new Error("API error"));
     await expect(parkWork("AI-200")).rejects.toThrow("API error");
+    const lastCall = mockSetProxyIntent.mock.calls[mockSetProxyIntent.mock.calls.length - 1];
+    expect(lastCall[0]).toBeUndefined();
+  });
+});
+
+// ── AI-1574: refuseWork must wrap in setProxyIntent("refuse-work") ─────────
+// Primary surface fix: without this, the proxy's raw-mutation interceptor
+// blocks refuseWork on governed tickets before the workflow-gate exemption
+// at workflow-gate.ts:905 is ever reached.
+describe("refuseWork — proxy intent guard (AI-1574)", () => {
+  it("sets intent to 'refuse-work' so the proxy routes via the intent path", async () => {
+    await refuseWork("AI-200", "Charles (CTO)", { comment: "Not my scope." });
+    expectIntentSetAndCleared("refuse-work");
+  });
+
+  it("clears intent even when refuseWork throws", async () => {
+    mockUpdateIssue.mockRejectedValueOnce(new Error("API error"));
+    await expect(refuseWork("AI-200", "Charles (CTO)", { comment: "error case" })).rejects.toThrow("API error");
     const lastCall = mockSetProxyIntent.mock.calls[mockSetProxyIntent.mock.calls.length - 1];
     expect(lastCall[0]).toBeUndefined();
   });
