@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { checkAuth, linearDoctor } from "./auth";
 import { getMyBlocked } from "./blocked";
 import { getBoard, getRecentlyDone, getReviewQueue, getStalled } from "./boards";
-import { considerWork, refuseWork, beginWork, handoffWork, complete, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote } from "./semantic";
+import { considerWork, refuseWork, beginWork, handoffWork, complete, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, stewardTakeover } from "./semantic";
 import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, updateIssue, verifyComment } from "./issues";
 import { attachIssueToMilestone, attachIssueToProject, attachIssueToProjectById, createMilestone, createProject, editProject, findProjectByName, getProjectDetail, getProjectIssues, listMilestones, listProjects } from "./projects";
 import { createBlockingRelation, listRelations, removeBlockingRelation, removeParentIssue, setParentIssue } from "./relations";
@@ -880,6 +880,15 @@ async function main(): Promise<void> {
   program.command("park").alias("parkWork").argument("<id>").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").description("Move ticket to Backlog and clear ownership (intentional deprioritization)").action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
     await runCommand(async () => parkWork(id, options), program.opts<{ human?: boolean }>().human);
   });
+
+  program.command("steward-takeover").alias("stewardTakeover")
+    .argument("<id>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .description("Sanctioned steward closure path — take over a stalled deployment-stage ticket whose delegate is absent")
+    .action(async (id: string, options: { comment?: string; commentFile?: string }) => {
+      await runCommand(async () => stewardTakeover(id, options), program.opts<{ human?: boolean }>().human);
+    });
 
   program.command("manage").alias("manageWork").argument("<id>")
     .option("--comment <msg>", INLINE_COMMENT_HELP)

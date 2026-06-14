@@ -17,6 +17,7 @@ import {
 } from "./matt-escalation-guard";
 import { setProxyIntent, setProxyTarget } from "./client";
 import { getComments, getIssueHistory } from "./boards";
+import { getSelfUser } from "./auth";
 import { addComment, getIssue, updateIssue } from "./issues";
 import { resolveLabelIds } from "./labels";
 import { IssueHistory } from "./types";
@@ -1158,6 +1159,66 @@ export async function reject(
   } finally {
     setProxyIntent(undefined);
     setProxyTarget(undefined);
+  }
+}
+
+/**
+ * linear steward-takeover <id>
+ *
+ * Sanctioned steward closure path (AC1–AC4, AI-1596). When a deployment-stage
+ * delegate is absent, a steward (Managing) can take over without break-glass.
+ * - Reassigns delegate to self regardless of who the current delegate is
+ * - Does NOT change state or labels (delegate-only mutation)
+ * - Posts optional comment
+ * - Sets proxy intent "steward-takeover" so the connector can surface it as
+ *   an actionable path in stuck-delegate alerts (AC3)
+ */
+export async function stewardTakeover(
+  issueId: string,
+  options?: { comment?: string }
+): Promise<SemanticResult> {
+  setProxyIntent("steward-takeover");
+  try {
+    const issue = await getIssue(issueId);
+    const self = await getSelfUser();
+
+    let commentPosted = false;
+    let commentId: string | null = null;
+    let commentUrl: string | null = null;
+    let commentCreatedAt: string | null = null;
+    let commentBodyLength: number | null = null;
+
+    if (options?.comment) {
+      const cr = await addComment(issueId, options.comment);
+      commentPosted = true;
+      commentId = cr.commentId;
+      commentUrl = cr.commentUrl;
+      commentCreatedAt = cr.commentCreatedAt;
+      commentBodyLength = cr.commentBodyLength;
+    }
+
+    // Delegate-only mutation — no stateId, no label changes (AC1)
+    const updatedIssue = await updateIssue(issueId, { delegateId: self.id });
+
+    return {
+      command: "stewardTakeover",
+      issueId: issue.identifier,
+      state: updatedIssue.state?.name ?? issue.state?.name ?? "Unknown",
+      delegate: self.name,
+      assignee: updatedIssue.assignee ? (updatedIssue.assignee as { name: string }).name : null,
+      commentPosted,
+      duplicateBlocked: false,
+      duplicateDetails: null,
+      rateLimitBlocked: false,
+      rateLimitDetails: null,
+      commentId,
+      commentUrl,
+      commentCreatedAt,
+      commentBodyLength,
+      bodyFile: null,
+    };
+  } finally {
+    setProxyIntent(undefined);
   }
 }
 
