@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { checkAuth, linearDoctor } from "./auth";
 import { getMyBlocked } from "./blocked";
 import { getBoard, getRecentlyDone, getReviewQueue, getStalled } from "./boards";
-import { considerWork, refuseWork, beginWork, handoffWork, complete, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, stewardTakeover } from "./semantic";
+import { considerWork, refuseWork, beginWork, handoffWork, complete, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, stewardTakeover, enrollTicket, type EnrollRiskLevel } from "./semantic";
 import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, updateIssue, verifyComment } from "./issues";
 import { attachIssueToMilestone, attachIssueToProject, attachIssueToProjectById, createMilestone, createProject, editProject, findProjectByName, getProjectDetail, getProjectIssues, listMilestones, listProjects } from "./projects";
 import { createBlockingRelation, listRelations, removeBlockingRelation, removeParentIssue, setParentIssue } from "./relations";
@@ -1023,6 +1023,24 @@ async function main(): Promise<void> {
     .description("Demote a ticket out of dev-impl workflow (dev-impl: intake → ad-hoc)")
     .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
       await runCommand(async () => demote(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  // AI-1575: atomic enrollment verb — sets wf:*, state:intake, risk:*, delegate, and
+  // native state in a single proxy-mediated mutation to eliminate orphaned-delegate
+  // enrollment collisions.
+  program.command("enroll").argument("<id>")
+    .requiredOption("--workflow <wf>", "Workflow to enroll onto (e.g. dev-impl)")
+    .requiredOption("--risk <level>", "Risk level: low, medium, or high")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Atomically enroll a ticket onto a workflow spine (AI-1575): sets wf:*, state:intake, risk:*, delegate=steward, and native state in one write")
+    .action(async (id: string, options: { workflow: string; risk: string; comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      const risk = options.risk as EnrollRiskLevel;
+      await runCommand(
+        async () => enrollTicket(id, { workflow: options.workflow, risk, comment: options.comment, commentFile: options.commentFile, forceDuplicate: options.forceDuplicate }),
+        program.opts<{ human?: boolean }>().human
+      );
     });
 
   // P4-2 — metric aggregation: surface ranked reason-code counts per step

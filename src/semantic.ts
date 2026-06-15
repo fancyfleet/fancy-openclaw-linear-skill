@@ -1258,6 +1258,66 @@ export async function escape(
   }
 }
 
+const ENROLL_RISK_LEVELS = ["low", "medium", "high"] as const;
+export type EnrollRiskLevel = (typeof ENROLL_RISK_LEVELS)[number];
+
+/**
+ * linear enroll <id> --workflow <wf> --risk <low|medium|high>
+ *
+ * Atomic enrollment of a ticket onto the dev-impl spine (AI-1575).
+ * Sends a single proxy-mediated mutation that writes label + delegate + native
+ * state in one write, eliminating the orphaned-delegate collision window that
+ * caused the AI-1571 incident.
+ *
+ * The CLI writes the enrollment labels (wf:<wf>, state:intake, risk:<level>)
+ * and the connector proxy completes the atomic write by adding the steward
+ * delegate and native state in one issueUpdateAtomic call.
+ *
+ * dev-impl: ad-hoc (or any state) → intake (steward enrollment action)
+ */
+export async function enrollTicket(
+  issueId: string,
+  options: {
+    workflow: string;
+    risk: EnrollRiskLevel;
+    comment?: string;
+    commentFile?: string;
+    forceDuplicate?: boolean;
+  }
+): Promise<SemanticResult> {
+  const validRisks: readonly string[] = ENROLL_RISK_LEVELS;
+  if (!validRisks.includes(options.risk)) {
+    throw new Error(
+      `Invalid risk level "${options.risk}". Must be one of: ${ENROLL_RISK_LEVELS.join(", ")}.`
+    );
+  }
+  setProxyIntent("enroll");
+  try {
+    return await executeTransition("enrollTicket", {
+      issueId,
+      comment: options.comment,
+      commentFile: options.commentFile,
+      forceDuplicate: options.forceDuplicate,
+      commandName: "enroll",
+    }, {
+      targetState: "todo",
+      commentMode: "optional",
+      omitStateId: true,
+      addLabels: [`wf:${options.workflow}`, "state:intake", `risk:${options.risk}`],
+      removeLabelsIfPresent: [
+        // Strip other workflow labels (not the one being enrolled onto)
+        ...["wf:dev-impl", "wf:sprint", "wf:ux-audit"].filter(l => l !== `wf:${options.workflow}`),
+        // Strip other state labels (not state:intake, which is being added)
+        ...DEV_IMPL_STATE_LABELS.filter(l => l !== "state:intake"),
+        // Strip other risk labels (not the one being set)
+        ...["risk:low", "risk:medium", "risk:high"].filter(l => l !== `risk:${options.risk}`),
+      ],
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
+}
+
 /**
  * linear demote <id>
  *
