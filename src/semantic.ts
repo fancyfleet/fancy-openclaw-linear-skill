@@ -788,8 +788,6 @@ export async function accept(
       targetState: "todo",
       commentMode: "optional",
       omitStateId: true,
-      addLabels: ["state:write-tests"],
-      removeLabelsIfPresent: otherStateLabels("state:write-tests"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -824,8 +822,6 @@ export async function testsReady(
       targetState: "doing",
       commentMode: "optional",
       omitStateId: true,
-      addLabels: ["state:implementation"],
-      removeLabelsIfPresent: otherStateLabels("state:implementation"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -858,8 +854,6 @@ export async function submit(
       targetState: "thinking",
       commentMode: "optional",
       omitStateId: true,
-      addLabels: ["state:code-review"],
-      removeLabelsIfPresent: otherStateLabels("state:code-review"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -889,8 +883,6 @@ export async function approve(
       targetState: "doing",
       commentMode: "optional",
       omitStateId: true,
-      addLabels: ["state:deployment"],
-      removeLabelsIfPresent: otherStateLabels("state:deployment"),
     });
   } finally {
     setProxyIntent(undefined);
@@ -934,8 +926,6 @@ export async function requestChanges(
       targetState: "doing",
       commentMode: "required",
       omitStateId: true,
-      addLabels: ["state:implementation"],
-      removeLabelsIfPresent: otherStateLabels("state:implementation"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -967,8 +957,6 @@ export async function deploy(
       targetState: "todo",
       commentMode: "optional",
       omitStateId: true,
-      addLabels: ["state:ac-validate"],
-      removeLabelsIfPresent: otherStateLabels("state:ac-validate"),
     });
   } finally {
     setProxyIntent(undefined);
@@ -998,8 +986,6 @@ export async function handoffHostDeploy(
       targetState: "todo",
       commentMode: "optional",
       omitStateId: true,
-      addLabels: ["state:host-deploy"],
-      removeLabelsIfPresent: otherStateLabels("state:host-deploy"),
     });
   } finally {
     setProxyIntent(undefined);
@@ -1029,8 +1015,6 @@ export async function hostDeployed(
       targetState: "todo",
       commentMode: "optional",
       omitStateId: true,
-      addLabels: ["state:ac-validate"],
-      removeLabelsIfPresent: otherStateLabels("state:ac-validate"),
     });
   } finally {
     setProxyIntent(undefined);
@@ -1060,7 +1044,6 @@ export async function validated(
       omitStateId: true,
       clearDelegate: true,
       clearAssignee: true,
-      removeLabelsIfPresent: [...DEV_IMPL_STATE_LABELS],
     });
   } finally {
     setProxyIntent(undefined);
@@ -1105,8 +1088,6 @@ export async function acFail(
       targetState: "doing",
       commentMode: "required",
       omitStateId: true,
-      addLabels: ["state:implementation"],
-      removeLabelsIfPresent: otherStateLabels("state:implementation"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -1152,8 +1133,6 @@ export async function reject(
       targetState: "doing",
       commentMode: "required",
       omitStateId: true,
-      addLabels: ["state:implementation"],
-      removeLabelsIfPresent: otherStateLabels("state:implementation"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -1251,7 +1230,6 @@ export async function escape(
       omitStateId: true,
       clearDelegate: true,
       clearAssignee: true,
-      removeLabelsIfPresent: [...DEV_IMPL_STATE_LABELS],
     });
   } finally {
     setProxyIntent(undefined);
@@ -1281,7 +1259,6 @@ export async function demote(
       omitStateId: true,
       clearDelegate: true,
       clearAssignee: true,
-      removeLabelsIfPresent: [...DEV_IMPL_STATE_LABELS, "wf:dev-impl"],
     });
   } finally {
     setProxyIntent(undefined);
