@@ -72,7 +72,7 @@ npm install -g .
 **Skill symlink** (for agent workspace SKILL.md discovery, separate from the binary):
 
 ```bash
-ln -s ~/Code/fancy-openclaw-linear-skill ~/.openclaw/workspace-{agent}/skills/linear
+ln -s ~/Code/fancy-openclaw-linear-skill ~/.openclaw/workspace/{agentId}/skills/linear
 ```
 
 **Do not use `npm link`.** It creates a fragile symlink to the source tree that breaks on nvm switches, npm global installs, or forgotten builds. Always use `npm install -g .` (or `npm install -g <tarball>`) which copies the built dist into node_modules.
@@ -86,14 +86,13 @@ This skill authenticates to Linear using personal API keys (developer tokens). N
 1. Generate a Linear API key: **Linear → Settings → Account → Security & access → API → New token**
 2. Create the secrets directory and write the key:
    ```bash
-   mkdir -p ~/.openclaw/workspace-{agent}/.secrets
-   echo "LINEAR_{AGENT}_API_KEY=lin_api_your_token" > ~/.openclaw/workspace-{agent}/.secrets/linear.env
-   chmod 600 ~/.openclaw/workspace-{agent}/.secrets/linear.env
+   mkdir -p ~/.openclaw/workspace/{agentId}/.secrets
+   echo "LINEAR_{AGENT}_API_KEY=lin_api_your_token" > ~/.openclaw/workspace/{agentId}/.secrets/linear.env
+   chmod 600 ~/.openclaw/workspace/{agentId}/.secrets/linear.env
    ```
 3. Verify:
    ```bash
-   cd ~/.openclaw/workspace/skills/fancy-openclaw-linear-skill
-   node dist/index.js auth check --human
+   linear doctor
    ```
 
 You should see your Linear user name and email printed. If not, see `references/auth.md` for the full auth guide including env var names, discovery rules, and troubleshooting.
@@ -102,8 +101,7 @@ You should see your Linear user name and email printed. If not, see `references/
 
 1. `LINEAR_API_KEY` environment variable
 2. `LINEAR_DEVELOPER_TOKEN` environment variable
-3. `~/.openclaw/workspace-{agent}/.secrets/linear.env` (key must match `linear` + `api_key`/`developer_token`/`token`)
-4. `{cwd}/.secrets/linear.env` (fallback)
+3. `~/.openclaw/workspace/{agentId}/.secrets/linear.env` (key must match `linear` + `api_key`/`developer_token`/`token`)
 
 ## Command Reference
 
@@ -165,7 +163,7 @@ Safe pattern:
 cat > /tmp/linear-comment.md <<'EOF'
 Removed `personal/expense-tally.md` from the vault.
 EOF
-linear handoff-work AI-123 "Charles (CTO)" --comment-file /tmp/linear-comment.md
+linear handoff-work AI-123 "Astrid (CPO)" --comment-file /tmp/linear-comment.md
 ```
 
 ### Comment Verification

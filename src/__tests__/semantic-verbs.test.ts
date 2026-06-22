@@ -116,7 +116,7 @@ beforeEach(() => {
   mockGetSelfUser.mockResolvedValue({ id: "user-igor", name: "Igor (Back End Dev)", email: "igor@test.com" });
   mockResolveUserWithHints.mockImplementation(async (name: string) => {
     const users: Record<string, { id: string; name: string }> = {
-      "Charles (CTO)": { id: "user-charles", name: "Charles (CTO)" },
+      "Hanzo (Merge Gate)": { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
       "Igor (Back End Dev)": { id: "user-igor", name: "Igor (Back End Dev)" },
     };
     const user = users[name];
@@ -204,10 +204,10 @@ describe("dev-impl semantic verbs", () => {
     });
 
     it("does NOT omit assigneeId when target is a regular (non-app) user", async () => {
-      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-charles", name: "Charles (CTO)", app: false });
-      await accept("AI-200", "Charles (CTO)");
+      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-hanzo", name: "Hanzo (Merge Gate)", app: false });
+      await accept("AI-200", "Hanzo (Merge Gate)");
       const call = mockUpdateIssue.mock.calls[0][1] as any;
-      expect(call.delegateId).toBe("user-charles");
+      expect(call.delegateId).toBe("user-hanzo");
       expect(call.assigneeId).toBeUndefined(); // accept has no clearAssignee so assigneeId is omitted regardless
     });
   });
@@ -308,10 +308,10 @@ describe("dev-impl semantic verbs", () => {
     });
 
     it("re-delegates to target when --target is provided (non-app user)", async () => {
-      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-charles", name: "Charles (CTO)", app: false });
-      await requestChanges("AI-200", { comment: "Needs more tests.", target: "Charles (CTO)" });
+      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-hanzo", name: "Hanzo (Merge Gate)", app: false });
+      await requestChanges("AI-200", { comment: "Needs more tests.", target: "Hanzo (Merge Gate)" });
       const call = mockUpdateIssue.mock.calls[0][1] as any;
-      expect(call.delegateId).toBe("user-charles");
+      expect(call.delegateId).toBe("user-hanzo");
     });
 
     it("does not include delegateId when no --target is provided", async () => {
@@ -626,10 +626,10 @@ describe("dev-impl semantic verbs", () => {
     });
 
     it("re-delegates to --target when provided (AI-1495, non-app user)", async () => {
-      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-charles", name: "Charles (CTO)", app: false });
-      await reject("AI-200", { comment: "Build is red.", target: "Charles (CTO)" });
+      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-hanzo", name: "Hanzo (Merge Gate)", app: false });
+      await reject("AI-200", { comment: "Build is red.", target: "Hanzo (Merge Gate)" });
       const call = mockUpdateIssue.mock.calls[0][1] as any;
-      expect(call.delegateId).toBe("user-charles");
+      expect(call.delegateId).toBe("user-hanzo");
     });
 
     it("does not include delegateId when no --target is provided (role-routing handles owner)", async () => {
@@ -915,13 +915,13 @@ describe("parkWork — proxy intent guard (AI-1392)", () => {
 // at workflow-gate.ts:905 is ever reached.
 describe("refuseWork — proxy intent guard (AI-1574)", () => {
   it("sets intent to 'refuse-work' so the proxy routes via the intent path", async () => {
-    await refuseWork("AI-200", "Charles (CTO)", { comment: "Not my scope." });
+    await refuseWork("AI-200", "Hanzo (Merge Gate)", { comment: "Not my scope." });
     expectIntentSetAndCleared("refuse-work");
   });
 
   it("clears intent even when refuseWork throws", async () => {
     mockUpdateIssue.mockRejectedValueOnce(new Error("API error"));
-    await expect(refuseWork("AI-200", "Charles (CTO)", { comment: "error case" })).rejects.toThrow("API error");
+    await expect(refuseWork("AI-200", "Hanzo (Merge Gate)", { comment: "error case" })).rejects.toThrow("API error");
     const lastCall = mockSetProxyIntent.mock.calls[mockSetProxyIntent.mock.calls.length - 1];
     expect(lastCall[0]).toBeUndefined();
   });

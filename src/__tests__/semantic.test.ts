@@ -84,7 +84,7 @@ beforeEach(() => {
   mockGetSelfUser.mockResolvedValue({ id: "user-igor", name: "Igor (Back End Dev)", email: "igor@test.com" });
   mockFindUserByName.mockImplementation(async (name: string) => {
     const users: Record<string, { id: string; name: string }> = {
-      "Charles (CTO)": { id: "user-charles", name: "Charles (CTO)" },
+      "Hanzo (Merge Gate)": { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
       "Matt Henry": { id: "user-matt", name: "Matt Henry" },
       "Igor (Back End Dev)": { id: "user-igor", name: "Igor (Back End Dev)" },
     };
@@ -94,7 +94,7 @@ beforeEach(() => {
   });
   mockResolveUserWithHints.mockImplementation(async (name: string) => {
     const users: Record<string, { id: string; name: string; email?: string | null }> = {
-      "Charles (CTO)": { id: "user-charles", name: "Charles (CTO)" },
+      "Hanzo (Merge Gate)": { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
       "Matt Henry": { id: "user-matt", name: "Matt Henry" },
       "Igor (Back End Dev)": { id: "user-igor", name: "Igor (Back End Dev)" },
     };
@@ -115,7 +115,7 @@ beforeEach(() => {
   // Simulate the real updateIssue behaviour: translate stateId/delegateId/assigneeId
   // back into the Issue shape that executeTransition reads from updatedIssue.
   const _updateUserMap: Record<string, { id: string; name: string }> = {
-    "user-charles": { id: "user-charles", name: "Charles (CTO)" },
+    "user-hanzo": { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
     "user-matt": { id: "user-matt", name: "Matt Henry" },
     "user-igor": { id: "user-igor", name: "Igor (Back End Dev)" },
   };
@@ -244,7 +244,7 @@ describe("considerWork", () => {
   it("no-ops when the issue is no longer delegated or assigned to self", async () => {
     mockGetIssue.mockResolvedValue({
       ...baseIssue,
-      delegate: { id: "user-charles", name: "Charles (CTO)" },
+      delegate: { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
       assignee: null,
     });
 
@@ -256,7 +256,7 @@ describe("considerWork", () => {
       command: "considerWork",
       issueId: "AI-100",
       state: "Todo",
-      delegate: "Charles (CTO)",
+      delegate: "Hanzo (Merge Gate)",
       assignee: null,
       commentPosted: false,
     });
@@ -371,11 +371,11 @@ describe("considerWork", () => {
 
   // AI-1394 regression: concurrent-grab via delegate+assignee overlap
   it("no-ops when self is assignee but NOT delegate (requireSelfDelegated guard)", async () => {
-    // Igor is assignee but Charles is delegate — Igor should not claim the ticket.
+    // Igor is assignee but Hanzo is delegate — Igor should not claim the ticket.
     // Previously requireSelfAssignedOrDelegated allowed this, enabling concurrent-grab.
     mockGetIssue.mockResolvedValue({
       ...baseIssue,
-      delegate: { id: "user-charles", name: "Charles (CTO)" },
+      delegate: { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
       assignee: { id: "user-igor", name: "Igor (Back End Dev)" },
     });
 
@@ -389,7 +389,7 @@ describe("considerWork", () => {
 
   // AI-1394 regression: stale consider-work wake reverting an advanced state
   it("no-ops when current state position is past the thinking state (advancement guard)", async () => {
-    // Simulates the race: Charles ran `linear approve` (Doing, position=3) then Igor's
+    // Simulates the race: Hanzo ran `linear approve` (Doing, position=3) then Igor's
     // stale consider-work wake fires. The position guard must prevent reverting to Thinking.
     const doingStateWithPosition = { id: "state-doing", name: "Doing", type: "started", position: 3 };
     const thinkingStateWithPosition = { id: "state-thinking", name: "Thinking", type: "started", position: 1 };
@@ -436,7 +436,7 @@ describe("considerWork", () => {
       ...baseIssue,
       state: doingStateWithPosition,
       // Not the delegate — but force should bypass ownership check too
-      delegate: { id: "user-charles", name: "Charles (CTO)" },
+      delegate: { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
       assignee: null,
     });
     mockFindSemanticState.mockImplementation(async () => thinkingStateWithPosition);
@@ -454,40 +454,40 @@ describe("considerWork", () => {
 
 describe("refuseWork", () => {
   it("sets status=Todo, delegate=specified user, posts comment", async () => {
-    const result = await refuseWork("AI-100", "Charles (CTO)", { comment: "Not my area." });
+    const result = await refuseWork("AI-100", "Hanzo (Merge Gate)", { comment: "Not my area." });
     expect(mockAddComment).toHaveBeenCalledWith("AI-100", "Not my area.");
     expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
       stateId: "state-todo",
-      delegateId: "user-charles",
+      delegateId: "user-hanzo",
     });
-    expect(result.delegate).toBe("Charles (CTO)");
+    expect(result.delegate).toBe("Hanzo (Merge Gate)");
     expect(result.state).toBe("Todo");
     expect(result.commentPosted).toBe(true);
   });
 
   it("reads comment from file", async () => {
     jest.spyOn(fs, "readFile").mockResolvedValueOnce("File refusal reason");
-    const result = await refuseWork("AI-100", "Charles (CTO)", { commentFile: "/path/to/file.md" });
+    const result = await refuseWork("AI-100", "Hanzo (Merge Gate)", { commentFile: "/path/to/file.md" });
     expect(mockAddComment).toHaveBeenCalledWith("AI-100", "File refusal reason");
     expect(result.commentPosted).toBe(true);
   });
 
   it("succeeds without comment (emits stderr warning)", async () => {
     const spy = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const result = await refuseWork("AI-100", "Charles (CTO)", {});
+    const result = await refuseWork("AI-100", "Hanzo (Merge Gate)", {});
     expect(spy).toHaveBeenCalledWith(expect.stringContaining("no comment provided"));
     spy.mockRestore();
     expect(mockAddComment).not.toHaveBeenCalled();
     expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
       stateId: "state-todo",
-      delegateId: "user-charles",
+      delegateId: "user-hanzo",
     });
     expect(result.commentPosted).toBe(false);
   });
 
   it("treats whitespace-only comment as empty (emits stderr warning)", async () => {
     const spy = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const result = await refuseWork("AI-100", "Charles (CTO)", { comment: "   " });
+    const result = await refuseWork("AI-100", "Hanzo (Merge Gate)", { comment: "   " });
     expect(spy).toHaveBeenCalledWith(expect.stringContaining("no comment provided"));
     spy.mockRestore();
     expect(mockAddComment).not.toHaveBeenCalled();
@@ -533,18 +533,18 @@ describe("beginWork", () => {
 
 describe("handoffWork", () => {
   it("sets status=Todo, delegate=agent, clears assignee, posts comment", async () => {
-    const result = await handoffWork("AI-100", "Charles (CTO)", { comment: "Your turn." });
+    const result = await handoffWork("AI-100", "Hanzo (Merge Gate)", { comment: "Your turn." });
     expect(mockAddComment).toHaveBeenCalledWith("AI-100", "Your turn.");
     expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
       stateId: "state-todo",
-      delegateId: "user-charles",
+      delegateId: "user-hanzo",
       assigneeId: null,
     });
     expect(result).toEqual({
       command: "handoffWork",
       issueId: "AI-100",
       state: "Todo",
-      delegate: "Charles (CTO)",
+      delegate: "Hanzo (Merge Gate)",
       assignee: null,
       commentPosted: true,
       duplicateBlocked: false,
@@ -561,13 +561,13 @@ describe("handoffWork", () => {
 
   it("succeeds without comment (emits stderr warning)", async () => {
     const spy = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const result = await handoffWork("AI-100", "Charles (CTO)", {});
+    const result = await handoffWork("AI-100", "Hanzo (Merge Gate)", {});
     expect(spy).toHaveBeenCalledWith(expect.stringContaining("no comment provided"));
     spy.mockRestore();
     expect(mockAddComment).not.toHaveBeenCalled();
     expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
       stateId: "state-todo",
-      delegateId: "user-charles",
+      delegateId: "user-hanzo",
       assigneeId: null,
     });
     expect(result.commentPosted).toBe(false);
@@ -575,30 +575,30 @@ describe("handoffWork", () => {
 
   it("is idempotent — safe to call multiple times", async () => {
     // First call
-    await handoffWork("AI-100", "Charles (CTO)", { comment: "Handing off." });
+    await handoffWork("AI-100", "Hanzo (Merge Gate)", { comment: "Handing off." });
     // Second call with same params — should succeed without error
-    await handoffWork("AI-100", "Charles (CTO)", { comment: "Re-confirming handoff." });
+    await handoffWork("AI-100", "Hanzo (Merge Gate)", { comment: "Re-confirming handoff." });
     expect(mockAddComment).toHaveBeenCalledTimes(2);
     expect(mockUpdateIssue).toHaveBeenCalledTimes(2);
   });
 
   describe("--review-handoff", () => {
     it("applies gate:agent-review label and prepends [Review Handoff] to inline comment", async () => {
-      await handoffWork("AI-100", "Charles (CTO)", {
+      await handoffWork("AI-100", "Hanzo (Merge Gate)", {
         reviewHandoff: true,
         comment: "Audit complete, ready for review.",
       });
       expect(mockAddComment).toHaveBeenCalledWith("AI-100", "[Review Handoff]\n\nAudit complete, ready for review.");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
         stateId: "state-todo",
-        delegateId: "user-charles",
+        delegateId: "user-hanzo",
         assigneeId: null,
         addedLabelIds: ["lbl-agent-review"],
       });
     });
 
     it("preserves comment when it already starts with [Review Handoff]", async () => {
-      await handoffWork("AI-100", "Charles (CTO)", {
+      await handoffWork("AI-100", "Hanzo (Merge Gate)", {
         reviewHandoff: true,
         comment: "[Review Handoff] Already prefixed.",
       });
@@ -607,7 +607,7 @@ describe("handoffWork", () => {
 
     it("prepends prefix to comment-file body when missing", async () => {
       jest.spyOn(fs, "readFile").mockResolvedValueOnce("Audit body from file");
-      await handoffWork("AI-100", "Charles (CTO)", {
+      await handoffWork("AI-100", "Hanzo (Merge Gate)", {
         reviewHandoff: true,
         commentFile: "/tmp/comment.md",
       });
@@ -616,13 +616,13 @@ describe("handoffWork", () => {
 
     it("succeeds without a comment, still applies label and warns", async () => {
       const spy = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
-      await handoffWork("AI-100", "Charles (CTO)", { reviewHandoff: true });
+      await handoffWork("AI-100", "Hanzo (Merge Gate)", { reviewHandoff: true });
       expect(spy).toHaveBeenCalledWith(expect.stringContaining("no comment provided"));
       spy.mockRestore();
       expect(mockAddComment).not.toHaveBeenCalled();
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
         stateId: "state-todo",
-        delegateId: "user-charles",
+        delegateId: "user-hanzo",
         assigneeId: null,
         addedLabelIds: ["lbl-agent-review"],
       });
@@ -633,17 +633,17 @@ describe("handoffWork", () => {
         throw new Error(`Label(s) not found: ${names.join(", ")}`);
       });
       await expect(
-        handoffWork("AI-100", "Charles (CTO)", { reviewHandoff: true, comment: "..." })
+        handoffWork("AI-100", "Hanzo (Merge Gate)", { reviewHandoff: true, comment: "..." })
       ).rejects.toThrow(/--review-handoff requires the "gate:agent-review" label/);
       expect(mockUpdateIssue).not.toHaveBeenCalled();
       expect(mockAddComment).not.toHaveBeenCalled();
     });
 
     it("does not apply label when --review-handoff is absent", async () => {
-      await handoffWork("AI-100", "Charles (CTO)", { comment: "Plain handoff." });
+      await handoffWork("AI-100", "Hanzo (Merge Gate)", { comment: "Plain handoff." });
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-100", {
         stateId: "state-todo",
-        delegateId: "user-charles",
+        delegateId: "user-hanzo",
         assigneeId: null,
       });
     });
@@ -651,7 +651,7 @@ describe("handoffWork", () => {
     it("omits assigneeId (does NOT pass null) when delegating to an app user — avoids silent delegate drop (AI-1395)", async () => {
     mockResolveUserWithHints.mockImplementation(async (name: string) => {
       if (name === "Igor (Back End Dev)") return { id: "user-igor", name: "Igor (Back End Dev)", app: true };
-      return { id: "user-charles", name: "Charles (CTO)" };
+      return { id: "user-hanzo", name: "Hanzo (Merge Gate)" };
     });
     const spy = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
     await handoffWork("AI-100", "Igor (Back End Dev)", { comment: "Your turn." });
@@ -668,13 +668,13 @@ describe("handoffWork", () => {
         ...baseIssue,
         labels: [{ id: "lbl-impl", name: "state:implementation", color: "#0f0" }],
       });
-      await handoffWork("AI-100", "Charles (CTO)", { comment: "Handing back." });
+      await handoffWork("AI-100", "Hanzo (Merge Gate)", { comment: "Handing back." });
       const call = mockUpdateIssue.mock.calls[0][1] as any;
       // Only the delegate changes. The native column (stateId) is left to the proxy
       // (omitted here), the active state:* label is NOT stripped, and assignee is not
       // cleared — sending stateId/assigneeId/labelIds would trip the proxy's
       // raw-mutation interception and drop the projection.
-      expect(call.delegateId).toBe("user-charles");
+      expect(call.delegateId).toBe("user-hanzo");
       expect(call.stateId).toBeUndefined();
       expect(call.removedLabelIds).toBeUndefined();
       expect(call.addedLabelIds).toBeUndefined();
@@ -686,7 +686,7 @@ describe("handoffWork", () => {
       ...baseIssue,
       labels: [{ id: "lbl-intake", name: "state:intake", color: "#00f" }],
     });
-    await handoffWork("AI-100", "Charles (CTO)", { comment: "Only intake label present." });
+    await handoffWork("AI-100", "Hanzo (Merge Gate)", { comment: "Only intake label present." });
     const call = mockUpdateIssue.mock.calls[0][1] as any;
     // The intake projection is preserved — no removal, no label resolution at all.
     expect(call.removedLabelIds).toBeUndefined();
@@ -907,7 +907,7 @@ describe("historyToTimelineEvents", () => {
     const history: IssueHistory[] = [
       {
         createdAt: "2026-04-26T12:00:00Z",
-        actor: { name: "Charles" },
+        actor: { name: "Hanzo" },
         fromState: { name: "Todo" },
         toState: { name: "In Progress" },
         fromAssignee: null,
@@ -941,7 +941,7 @@ describe("historyToTimelineEvents", () => {
       },
       {
         createdAt: "2026-04-26T12:00:00Z",
-        actor: { name: "Charles" },
+        actor: { name: "Hanzo" },
         fromState: { name: "Todo" },
         toState: { name: "In Progress" },
         fromAssignee: null, toAssignee: null,
@@ -972,7 +972,7 @@ describe("historyToTimelineEvents", () => {
 describe("inline comment safety warnings", () => {
   it("warns when an inline comment looks stripped by shell command substitution", async () => {
     const spy = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
-    await handoffWork("AI-100", "Charles (CTO)", { comment: "removed  from the vault" });
+    await handoffWork("AI-100", "Hanzo (Merge Gate)", { comment: "removed  from the vault" });
     expect(spy).toHaveBeenCalledWith(expect.stringContaining("looks like shell command-substitution"));
     spy.mockRestore();
   });
@@ -980,7 +980,7 @@ describe("inline comment safety warnings", () => {
   it("does not warn for comment-file bodies", async () => {
     const spy = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
     const readSpy = jest.spyOn(fs, "readFile").mockResolvedValue("removed `personal/expense-tally.md` from the vault");
-    await handoffWork("AI-100", "Charles (CTO)", { commentFile: "/tmp/comment.md" });
+    await handoffWork("AI-100", "Hanzo (Merge Gate)", { commentFile: "/tmp/comment.md" });
     expect(spy).not.toHaveBeenCalled();
     readSpy.mockRestore();
     spy.mockRestore();

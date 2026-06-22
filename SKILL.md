@@ -19,7 +19,7 @@ Each agent has its own unique token. Tokens must **never** be shared between age
 
 The CLI resolves the agent name from `OPENCLAW_MCP_AGENT_ID` or `OPENCLAW_AGENT_NAME` env vars, then loads `LINEAR_OAUTH_TOKEN` from that canonical path.
 
-**When rotating tokens:** update only the file at `~/.openclaw/workspace/{agentId}/.secrets/linear.env` (or `~/.openclaw/workspace/.secrets/linear.env` for main). Do **not** create or update files in `~/.openclaw/workspace-{agentId}/` — those are vestigial profile workspaces and should not contain secrets.
+**When rotating tokens:** update only the file at `~/.openclaw/workspace/{agentId}/.secrets/linear.env` (or `~/.openclaw/workspace/.secrets/linear.env` for main).
 
 Use `linear doctor` to verify token validity and identity.
 
@@ -104,7 +104,7 @@ Safe pattern:
 cat > /tmp/linear-comment.md <<'EOF'
 Removed `personal/expense-tally.md` from the vault.
 EOF
-linear handoff-work AI-123 "Charles (CTO)" --comment-file /tmp/linear-comment.md
+linear handoff-work AI-123 "Astrid (CPO)" --comment-file /tmp/linear-comment.md
 ```
 
 #### Comment Options
@@ -282,8 +282,8 @@ Agents often get this wrong, so treat project selection as part of the create op
 ```bash
 linear projects > /tmp/linear-projects.json
 # choose the exact project id/name from the list
-linear create AI "Title" --project "<project-id>" --description-file /tmp/desc.md --delegate "Charles" --dry-run
-linear create AI "Title" --project "<project-id>" --description-file /tmp/desc.md --delegate "Charles"
+linear create AI "Title" --project "<project-id>" --description-file /tmp/desc.md --delegate "Astrid" --dry-run
+linear create AI "Title" --project "<project-id>" --description-file /tmp/desc.md --delegate "Astrid"
 ```
 
 Prefer project IDs over names when available; names are easier for humans but IDs avoid ambiguity and stale memory.

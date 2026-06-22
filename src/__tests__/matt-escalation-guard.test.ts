@@ -57,7 +57,7 @@ const baseIssue: any = {
   team: { id: "team-1", key: "AI", name: "AI Systems" },
   state: { id: "state-todo", name: "Todo", type: "unstarted" },
   assignee: null,
-  delegate: { id: "user-charles", name: "Charles (CTO)" },
+  delegate: { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
 };
 
 const todoState = { id: "state-todo", name: "Todo", type: "unstarted" };
@@ -67,7 +67,7 @@ beforeEach(() => {
   mockFs.appendFile.mockResolvedValue(undefined);
   mockFs.readFile.mockRejectedValue(new Error("not found"));
   mockGetIssue.mockResolvedValue(baseIssue);
-  mockGetSelfUser.mockResolvedValue({ id: "user-charles", name: "Charles (CTO)", email: "c@test.com" });
+  mockGetSelfUser.mockResolvedValue({ id: "user-hanzo", name: "Hanzo (Merge Gate)", email: "c@test.com" });
   mockFindUserByName.mockImplementation(async (name: string) => {
     const users: Record<string, { id: string; name: string }> = {
       "Matt Henry": { id: "user-matt", name: "Matt Henry" },
@@ -204,7 +204,7 @@ describe("isMattTarget", () => {
     expect(isMattTarget(name)).toBe(true);
   });
 
-  it.each(["Ai", "Charles (CTO)", "Igor (Back End Dev)", "Astrid (CPO)"])(
+  it.each(["Ai", "Hanzo (Merge Gate)", "Igor (Back End Dev)", "Astrid (CPO)"])(
     "does not match %s",
     (name) => {
       expect(isMattTarget(name)).toBe(false);
@@ -343,10 +343,10 @@ describe("handoffWork guard", () => {
   });
 
   it("allows handoff to non-Matt even with forbidden patterns", async () => {
-    mockFindUserByName.mockResolvedValue({ id: "user-charles", name: "Charles (CTO)" });
-    mockResolveUserWithHints.mockResolvedValue({ id: "user-charles", name: "Charles (CTO)" });
+    mockFindUserByName.mockResolvedValue({ id: "user-hanzo", name: "Hanzo (Merge Gate)" });
+    mockResolveUserWithHints.mockResolvedValue({ id: "user-hanzo", name: "Hanzo (Merge Gate)" });
     await expect(
-      handoffWork("AI-100", "Charles (CTO)", {
+      handoffWork("AI-100", "Hanzo (Merge Gate)", {
         comment: "gh auth is broken — please investigate.",
       })
     ).resolves.toBeDefined();

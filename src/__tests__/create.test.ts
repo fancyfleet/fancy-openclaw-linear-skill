@@ -43,9 +43,9 @@ describe("resolveUserRef", () => {
 
   it("resolves a name to user ID via findUserByName", async () => {
     mockedGraphQL.mockResolvedValue({
-      users: { nodes: [{ id: "u-1", name: "Charles (CTO)", email: "c@example.com" }] }
+      users: { nodes: [{ id: "u-1", name: "Hanzo (Merge Gate)", email: "c@example.com" }] }
     });
-    const result = await resolveUserRef("Charles (CTO)");
+    const result = await resolveUserRef("Hanzo (Merge Gate)");
     expect(result).toBe("u-1");
     expect(mockedGraphQL).toHaveBeenCalledTimes(1);
   });
@@ -92,9 +92,9 @@ describe("resolveUserWithHints (UUID passthrough)", () => {
 
   it("resolves a name via findUserByName when not a UUID", async () => {
     mockedGraphQL.mockResolvedValue({
-      users: { nodes: [{ id: "u-1", name: "Charles (CTO)", email: "c@example.com" }] }
+      users: { nodes: [{ id: "u-1", name: "Hanzo (Merge Gate)", email: "c@example.com" }] }
     });
-    const result = await resolveUserWithHints("Charles (CTO)");
+    const result = await resolveUserWithHints("Hanzo (Merge Gate)");
     expect(result.id).toBe("u-1");
     expect(mockedGraphQL).toHaveBeenCalledTimes(1);
   });
@@ -138,7 +138,7 @@ describe("create description/delegate handling", () => {
           state: { id: "state-todo", name: "Todo", type: "unstarted" },
           assignee: null,
           team: { id: "team-1", key: "AI", name: "AI" },
-          delegate: { id: "user-charles", name: "Charles (CTO)" },
+          delegate: { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
           project: null,
           projectMilestone: null,
           labels: { nodes: [] },
@@ -152,7 +152,7 @@ describe("create description/delegate handling", () => {
       teamId: "team-1",
       title: "Test",
       description: "# Heading\n\nBody",
-      delegateId: "user-charles"
+      delegateId: "user-hanzo"
     });
 
     expect(mockedGraphQL).toHaveBeenNthCalledWith(
@@ -160,7 +160,7 @@ describe("create description/delegate handling", () => {
       expect.stringContaining("issueCreate"),
       expect.objectContaining({
         input: expect.objectContaining({
-          delegateId: "user-charles",
+          delegateId: "user-hanzo",
           description: "# Heading\n\nBody"
         })
       })

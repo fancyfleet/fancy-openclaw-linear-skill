@@ -413,7 +413,7 @@ describe("findUserByName", () => {
 
   it("finds user by exact name match (case-insensitive)", async () => {
     mockedGraphQL.mockResolvedValue({
-      users: { nodes: [{ id: "u-1", name: "Charles (CTO)", email: "c@example.com" }] }
+      users: { nodes: [{ id: "u-1", name: "Hanzo (Merge Gate)", email: "c@example.com" }] }
     });
     const user = await findUserByName("charles (cto)");
     expect(user.id).toBe("u-1");

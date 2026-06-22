@@ -855,7 +855,7 @@ function fuzzyNames(query: string, candidates: string[]): string[] {
 }
 
 // Known agent names for hinting (display names used in Linear)
-const KNOWN_AGENTS = ["Charles (CTO)", "Astrid (CPO)", "Felix (Unity Dev)", "Noah (React Native Dev)", "Igor (Backend Dev)"];
+const KNOWN_AGENTS = ["Astrid (CPO)", "Felix (Unity Dev)", "Noah (React Native Dev)", "Igor (Backend Dev)", "Sage (Frontend Dev)"];
 
 /**
  * Enhanced user resolution with contextual hints.

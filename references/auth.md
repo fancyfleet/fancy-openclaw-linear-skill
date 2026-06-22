@@ -33,8 +33,10 @@ If `LINEAR_API_KEY` is not set but this is, it's used instead. This matches Line
 ### 3. Agent workspace secret file
 
 ```
-~/.openclaw/workspace-{agent}/.secrets/linear.env
+~/.openclaw/workspace/{agentId}/.secrets/linear.env
 ```
+
+The **main** agent has no subdirectory — its token lives at `~/.openclaw/workspace/.secrets/linear.env`.
 
 The file is a plain shell-style env file. The scanner accepts key names that contain `linear` plus one of `api_key`, `developer_token`, or `token` (case-insensitive). Common patterns:
 
@@ -60,13 +62,11 @@ When looking for the secret file, the auth system needs to know which agent is r
 |---|---|---|---|
 | 1 | `OPENCLAW_MCP_AGENT_ID` | `charles` | Primary — set by the OpenClaw MCP runtime when invoking the skill |
 | 2 | `OPENCLAW_AGENT_NAME` | `charles` | Explicit user override (e.g. for ad-hoc CLI use) |
-| 3 | `$HOME` basename | `charles` | Fallback — only matched when basename starts with `workspace-` or `openclaw-` |
+| 3 | `cwd` | derived from `process.cwd()` | Fallback — matches `.../workspace/<name>/` segment |
 
 The first source that produces a name wins. If multiple sources are set and **disagree**, a warning is logged and the highest-priority source is used (no silent wrong-token selection).
 
-The agent name is lowercased and used to build the path: `~/.openclaw/workspace-{name}/.secrets/linear.env`.
-
-The current working directory is also checked: `{cwd}/.secrets/linear.env`. This is a separate path-based fallback that covers cases where the skill is invoked from inside a workspace directory.
+The agent name is lowercased and used to build the path: `~/.openclaw/workspace/{name}/.secrets/linear.env`.
 
 ## New Agent Onboarding Checklist
 
@@ -75,26 +75,27 @@ Setting up Linear auth for a fresh agent:
 1. **Generate the token** in Linear (see above)
 2. **Create the secrets directory:**
    ```bash
-   mkdir -p ~/.openclaw/workspace-{agent}/.secrets
+   mkdir -p ~/.openclaw/workspace/{agentId}/.secrets
    ```
 3. **Write the env file:**
    ```bash
-   echo "LINEAR_{AGENT}_API_KEY=lin_api_your_token_here" > ~/.openclaw/workspace-{agent}/.secrets/linear.env
-   chmod 600 ~/.openclaw/workspace-{agent}/.secrets/linear.env
+   echo "LINEAR_{AGENT}_API_KEY=lin_api_your_token_here" > ~/.openclaw/workspace/{agentId}/.secrets/linear.env
+   chmod 600 ~/.openclaw/workspace/{agentId}/.secrets/linear.env
    ```
    
    For app-style (developer) tokens, you can also name it:
    ```bash
-   echo "LINEAR_{AGENT}_DEVELOPER_TOKEN=lin_oauth_your_token_here" > ~/.openclaw/workspace-{agent}/.secrets/linear.env
+   echo "LINEAR_{AGENT}_DEVELOPER_TOKEN=lin_oauth_your_token_here" > ~/.openclaw/workspace/{agentId}/.secrets/linear.env
    ```
 4. **Verify from the CLI:**
    ```bash
-   cd ~/.openclaw/workspace/skills/fancy-openclaw-linear-skill
-   node dist/index.js auth check --human
+   linear doctor
    ```
-5. **Expected output:** Your Linear user name, email, and ID printed in human-readable form.
+5. **Expected output:** Token validity, user identity, and basic read-only operations confirmed.
 
-If you see `No Linear API key found for agent ...`, the env file is missing, the key name doesn't match any recognized pattern (`linear` + `api_key`/`developer_token`/`token`), or the agent name isn't being discovered correctly. Check that `OPENCLAW_MCP_AGENT_ID` (set automatically by the OpenClaw runtime) or `OPENCLAW_AGENT_NAME` (manual override) is set, or that the directory name matches.
+To check if you have Linear access: run `linear test`. The token is file-based, not environment-injected — checking `env | grep LINEAR` will not show it.
+
+If you see `No Linear API key found for agent ...`, the env file is missing, the key name doesn't match any recognized pattern (`linear` + `api_key`/`developer_token`/`token`), or the agent name isn't being discovered correctly. Check that `OPENCLAW_MCP_AGENT_ID` (set automatically by the OpenClaw runtime) or `OPENCLAW_AGENT_NAME` (manual override) is set, or that the working directory matches `~/.openclaw/workspace/{agentId}/`.
 
 If you see `LINEAR_API_KEY is invalid`, the token was copied incorrectly or has been revoked.
 

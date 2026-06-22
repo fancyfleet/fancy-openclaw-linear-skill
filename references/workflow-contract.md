@@ -55,7 +55,7 @@ Task acknowledged, then no visible outcome.
 linear issue AI-123
 linear comments AI-123
 linear status AI-123 review
-linear handoff AI-123 Charles --comment-file /tmp/review.md
+linear handoff AI-123 Astrid --comment-file /tmp/review.md
 ```
 
 ## Relationship to the connector

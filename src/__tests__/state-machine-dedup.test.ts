@@ -15,7 +15,7 @@ jest.mock("../boards", () => ({
 const mockGetSelfUser = getSelfUser as jest.MockedFunction<typeof getSelfUser>;
 const mockGetComments = getComments as jest.MockedFunction<typeof getComments>;
 
-const SELF = { id: "user-1", name: "Charles (CTO)" } as any;
+const SELF = { id: "user-1", name: "Hanzo (Merge Gate)" } as any;
 const OTHER = { id: "user-2", name: "Matt Henry" } as any;
 
 function makeComment(body: string, ageSeconds: number, user = SELF): any {
@@ -373,7 +373,7 @@ describe("checkCommentRateLimit", () => {
       makeComment("wrong agent: this is backend connector work", 150),
       makeComment("[routing ambiguity] backend code review, not React Native", 120),
       makeComment("[wrong agent] backend code review, not RN", 90),
-      makeComment("backend connector, not mobile — routing to Charles", 60),
+      makeComment("backend connector, not mobile — routing to Igor", 60),
       makeComment("backend code review, not React Native", 30),
       makeComment("[wrong agent] backend code review", 10),
     ];

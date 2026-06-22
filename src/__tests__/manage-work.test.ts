@@ -55,9 +55,9 @@ const baseIssue: any = {
 beforeEach(() => {
   jest.resetAllMocks();
   mockGetIssue.mockResolvedValue(baseIssue);
-  mockGetSelfUser.mockResolvedValue({ id: "user-charles", name: "Charles (CTO)", email: "charles@test.com" });
+  mockGetSelfUser.mockResolvedValue({ id: "user-hanzo", name: "Hanzo (Merge Gate)", email: "hanzo@test.com" });
   const _manageUserMap: Record<string, { id: string; name: string }> = {
-    "user-charles": { id: "user-charles", name: "Charles (CTO)" },
+    "user-hanzo": { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
     "user-matt": { id: "user-matt", name: "Matt Henry" },
   };
   mockUpdateIssue.mockImplementation(async (_id: string, input: any) => {
@@ -92,12 +92,12 @@ describe("manageWork", () => {
       "AI-100",
       expect.objectContaining({
         stateId: "state-managing",
-        delegateId: "user-charles",
+        delegateId: "user-hanzo",
         assigneeId: null,
       }),
     );
     expect(result.state).toBe("Managing");
-    expect(result.delegate).toBe("Charles (CTO)");
+    expect(result.delegate).toBe("Hanzo (Merge Gate)");
   });
 
   it("writes a Managing-interval marker when --interval is provided and none exists", async () => {
@@ -141,9 +141,9 @@ describe("manageWork", () => {
     const result = await manageWork("AI-100");
     expect(mockUpdateIssue).toHaveBeenCalledWith(
       "AI-100",
-      expect.objectContaining({ delegateId: "user-charles", assigneeId: null }),
+      expect.objectContaining({ delegateId: "user-hanzo", assigneeId: null }),
     );
-    expect(result.delegate).toBe("Charles (CTO)");
+    expect(result.delegate).toBe("Hanzo (Merge Gate)");
   });
 
   it("clears assignee when already in Managing but assignee is set", async () => {
@@ -151,7 +151,7 @@ describe("manageWork", () => {
       ...baseIssue,
       state: managingState,
       assignee: { id: "user-matt", name: "Matt Henry" },
-      delegate: { id: "user-charles", name: "Charles (CTO)" },
+      delegate: { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
     } as never);
     await manageWork("AI-100");
     expect(mockUpdateIssue).toHaveBeenCalledWith(
@@ -165,12 +165,12 @@ describe("manageWork", () => {
       ...baseIssue,
       state: managingState,
       assignee: null,
-      delegate: { id: "user-charles", name: "Charles (CTO)" },
+      delegate: { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
     } as never);
     const result = await manageWork("AI-100");
     const stateUpdates = mockUpdateIssue.mock.calls.filter((c) => "stateId" in (c[1] ?? {}));
     expect(stateUpdates).toHaveLength(0);
     expect(result.state).toBe("Managing");
-    expect(result.delegate).toBe("Charles (CTO)");
+    expect(result.delegate).toBe("Hanzo (Merge Gate)");
   });
 });

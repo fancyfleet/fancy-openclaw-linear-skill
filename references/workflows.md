@@ -3,7 +3,7 @@
 ## Handoff to reviewer
 
 ```bash
-linear handoff AI-123 Charles --comment-file /tmp/review.md
+linear handoff AI-123 Astrid --comment-file /tmp/review.md
 ```
 
 ## Create issue and attach to project
