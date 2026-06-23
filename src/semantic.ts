@@ -890,6 +890,64 @@ export async function filed(
 }
 
 /**
+ * linear continue-workflow <id>
+ *
+ * Generic "move forward" command. The proxy resolves this to the actual workflow
+ * transition command (e.g. brief-ready, submit, approve, filed) based on the ticket's
+ * current state and the `generic: continue` tag in the workflow definition.
+ *
+ * Requires a comment. Named commands (brief-ready, submit, etc.) remain as aliases.
+ */
+export async function continueWorkflow(
+  issueId: string,
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<SemanticResult> {
+  setProxyIntent("continue-workflow");
+  try {
+    return await executeTransition("continue-workflow", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      commentMode: "required",
+      omitStateId: true,
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
+}
+
+/**
+ * linear request-revision <id>
+ *
+ * Generic "send back" command. The proxy resolves this to the actual workflow
+ * transition command (e.g. request-changes) based on the ticket's current state
+ * and the `generic: revision` tag in the workflow definition.
+ *
+ * Requires a comment explaining what needs to change. Named commands remain as aliases.
+ */
+export async function requestRevision(
+  issueId: string,
+  options?: { comment?: string; commentFile?: string; feedbackCategory?: string; forceDuplicate?: boolean }
+): Promise<SemanticResult> {
+  setProxyIntent("request-revision");
+  try {
+    return await executeTransition("request-revision", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      commentMode: "required",
+      omitStateId: true,
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
+}
+
+/**
  * linear submit <id>
  *
  * Submit implementation work for code review.

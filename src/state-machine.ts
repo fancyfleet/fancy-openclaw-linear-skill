@@ -242,8 +242,12 @@ function requireComment(
 export type CommentMode = "none" | "optional" | "required" | "optional-with-warning";
 
 export interface StateTransition {
-  /** Semantic state name to transition to (e.g. "thinking", "doing", "todo", "done") */
-  targetState: string;
+  /**
+   * Semantic state name to transition to (e.g. "thinking", "doing", "todo", "done").
+   * Optional when `omitStateId: true` and the proxy resolves the target state dynamically
+   * (generic commands: continue-workflow, request-revision).
+   */
+  targetState?: string;
   /** Comment policy for this command */
   commentMode: CommentMode;
   /** Resolve a user by name and set as delegate? If set, the string is the user name argument. */
@@ -505,36 +509,39 @@ export async function executeTransition(
     }
   }
 
-  // 2. Resolve target state
-  const state = await findSemanticState(teamId, config.targetState);
+  // 2. Resolve target state (skipped for proxy-resolved transitions that omit stateId)
+  let state: Awaited<ReturnType<typeof findSemanticState>> | undefined;
+  if (config.targetState) {
+    state = await findSemanticState(teamId, config.targetState);
 
-  // 2.5. Advancement guard: skip if the current state is already further along
-  //      in the workflow than the target state. This prevents consider-work
-  //      (target=thinking) from reverting a more-advanced state (e.g. Doing,
-  //      code-review, deployment) when a concurrent agent wake fires after
-  //      another agent has already advanced the ticket (AI-1394). Ranking is by
-  //      state type/engagement order, NOT raw board position (AI-1562).
-  if (config.skipIfStatePositionAheadOfTarget) {
-    const currentRank = stateAdvancementRank(issue.state);
-    const targetRank = stateAdvancementRank(state);
-    if (currentRank > targetRank) {
-      const result = nullResult(issue.state?.name ?? "Unknown");
-      if (config.includeContext) {
-        result.context = await buildObserveContext(issue);
+    // 2.5. Advancement guard: skip if the current state is already further along
+    //      in the workflow than the target state. This prevents consider-work
+    //      (target=thinking) from reverting a more-advanced state (e.g. Doing,
+    //      code-review, deployment) when a concurrent agent wake fires after
+    //      another agent has already advanced the ticket (AI-1394). Ranking is by
+    //      state type/engagement order, NOT raw board position (AI-1562).
+    if (config.skipIfStatePositionAheadOfTarget) {
+      const currentRank = stateAdvancementRank(issue.state);
+      const targetRank = stateAdvancementRank(state);
+      if (currentRank > targetRank) {
+        const result = nullResult(issue.state?.name ?? "Unknown");
+        if (config.includeContext) {
+          result.context = await buildObserveContext(issue);
+        }
+        return result;
       }
-      return result;
     }
-  }
 
-  // 3. Idempotency check — skip the update only if already in the target state
-  //    AND the command's ownership invariants (delegate/assignee) already hold.
-  //    A same-state ticket with the wrong delegate/assignee still needs repair,
-  //    so we fall through to the update in that case.
-  if (config.skipIfSameState) {
-    const currentStateName = issue.state?.name?.toLowerCase() ?? "";
-    const targetStateName = state.name.toLowerCase();
-    if (currentStateName === targetStateName && await ownershipSatisfied(issue, config, args)) {
-      return nullResult(state.name);
+    // 3. Idempotency check — skip the update only if already in the target state
+    //    AND the command's ownership invariants (delegate/assignee) already hold.
+    //    A same-state ticket with the wrong delegate/assignee still needs repair,
+    //    so we fall through to the update in that case.
+    if (config.skipIfSameState) {
+      const currentStateName = issue.state?.name?.toLowerCase() ?? "";
+      const targetStateName = state.name.toLowerCase();
+      if (currentStateName === targetStateName && await ownershipSatisfied(issue, config, args)) {
+        return nullResult(state.name);
+      }
     }
   }
 
@@ -656,7 +663,7 @@ export async function executeTransition(
   // AI-1498: governed dev-impl verbs omit stateId — the connector proxy is the
   // sole atomic writer of the native column. All other (non-governed) commands
   // still write stateId here, since the proxy forwards them unchanged.
-  const updatePayload: Record<string, any> = config.omitStateId ? {} : { stateId: state.id };
+  const updatePayload: Record<string, any> = config.omitStateId ? {} : { stateId: state!.id };
   if (delegateId !== undefined) updatePayload.delegateId = delegateId;
   if (assigneeId !== undefined) updatePayload.assigneeId = assigneeId;
   if (addedLabelIds?.length) updatePayload.addedLabelIds = addedLabelIds;
@@ -726,7 +733,7 @@ export async function executeTransition(
   const result: TransitionResult = {
     command: commandName,
     issueId: issue.identifier,
-    state: state.name,
+    state: state?.name ?? updatedIssue.state?.name ?? "unknown",
     delegate: updatedIssue.delegate?.name ?? null,
     assignee: updatedIssue.assignee?.name ?? null,
     commentPosted,
