@@ -900,8 +900,10 @@ export async function filed(
  */
 export async function continueWorkflow(
   issueId: string,
+  target?: string,
   options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
 ): Promise<SemanticResult> {
+  setProxyTarget(target);
   setProxyIntent("continue-workflow");
   try {
     return await executeTransition("continue-workflow", {
@@ -909,12 +911,15 @@ export async function continueWorkflow(
       comment: options?.comment,
       commentFile: options?.commentFile,
       forceDuplicate: options?.forceDuplicate,
+      userName: target,
     }, {
       commentMode: "required",
       omitStateId: true,
+      ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
     setProxyIntent(undefined);
+    setProxyTarget(undefined);
   }
 }
 
@@ -929,8 +934,10 @@ export async function continueWorkflow(
  */
 export async function requestRevision(
   issueId: string,
+  target?: string,
   options?: { comment?: string; commentFile?: string; feedbackCategory?: string; forceDuplicate?: boolean }
 ): Promise<SemanticResult> {
+  setProxyTarget(target);
   setProxyIntent("request-revision");
   try {
     return await executeTransition("request-revision", {
@@ -944,6 +951,7 @@ export async function requestRevision(
     });
   } finally {
     setProxyIntent(undefined);
+    setProxyTarget(undefined);
   }
 }
 

@@ -942,21 +942,23 @@ async function main(): Promise<void> {
     });
 
   program.command("continue-workflow").argument("<id>")
+    .argument("[target]", "Delegate to assign (required when the workflow state expects a specific body, e.g. igor, felix)")
     .option("--comment <msg>", INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
     .description("Generic forward transition: proxy resolves to the `generic: continue` command for the current workflow state (e.g. brief-ready, submit, approve, filed)")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
-      await runCommand(async () => continueWorkflow(id, options), program.opts<{ human?: boolean }>().human);
+    .action(async (id: string, target: string | undefined, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => continueWorkflow(id, target, options), program.opts<{ human?: boolean }>().human);
     });
 
   program.command("request-revision").argument("<id>")
+    .argument("[target]", "Delegate to reassign (defaults to prior-implementer for revision transitions)")
     .option("--comment <msg>", INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
     .description("Generic revision/rollback transition: proxy resolves to the `generic: revision` command for the current workflow state (e.g. request-changes)")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
-      await runCommand(async () => requestRevision(id, options), program.opts<{ human?: boolean }>().human);
+    .action(async (id: string, target: string | undefined, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => requestRevision(id, target, options), program.opts<{ human?: boolean }>().human);
     });
 
   program.command("submit").argument("<id>")
