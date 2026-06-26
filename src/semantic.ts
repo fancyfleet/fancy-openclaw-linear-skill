@@ -1362,6 +1362,35 @@ export async function escape(
 }
 
 /**
+ * linear unescape <id>
+ *
+ * Recovery: reverse a break-glass escape and re-enter the workflow at intake.
+ * dev-impl: escape terminal → intake (steward action)
+ */
+export async function unescape(
+  issueId: string,
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<SemanticResult> {
+  setProxyIntent("unescape");
+  try {
+    return await executeTransition("unescape", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      // unescape re-enters at intake (native Todo). The connector's workflow
+      // definition has this as a defined transition: escape → intake.
+      targetState: "todo",
+      commentMode: "optional",
+      omitStateId: true,
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
+}
+
+/**
  * linear demote <id>
  *
  * Demote a ticket out of the dev-impl workflow entirely.

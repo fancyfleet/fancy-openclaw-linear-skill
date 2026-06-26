@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { checkAuth, linearDoctor } from "./auth";
 import { getMyBlocked } from "./blocked";
 import { getBoard, getRecentlyDone, getReviewQueue, getStalled } from "./boards";
-import { considerWork, refuseWork, beginWork, handoffWork, complete, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, briefReady, filed, continueWorkflow, requestRevision, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, stewardTakeover } from "./semantic";
+import { considerWork, refuseWork, beginWork, handoffWork, complete, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, briefReady, filed, continueWorkflow, requestRevision, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, unescape, demote, stewardTakeover } from "./semantic";
 import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, updateIssue, verifyComment } from "./issues";
 import { attachIssueToMilestone, attachIssueToProject, attachIssueToProjectById, createMilestone, createProject, editProject, findProjectByName, getProjectDetail, getProjectIssues, listMilestones, listProjects } from "./projects";
 import { createBlockingRelation, listRelations, removeBlockingRelation, removeParentIssue, setParentIssue } from "./relations";
@@ -1053,6 +1053,15 @@ async function main(): Promise<void> {
     .description("Break-glass: escape the ticket out of the workflow (dev-impl: any → escape terminal)")
     .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
       await runCommand(async () => escape(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("unescape").argument("<id>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Recovery: reverse an escape and re-enter workflow at intake (dev-impl: escape terminal → intake)")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => unescape(id, options), program.opts<{ human?: boolean }>().human);
     });
 
   program.command("demote").argument("<id>")
