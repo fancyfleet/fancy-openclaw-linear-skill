@@ -702,6 +702,10 @@ export async function executeTransition(
         }
       }
     }
+  } else {
+    // AI-1709: re-fetch post-proxy state so step 11's delegate verification compares
+    // against the actual delegate set by the proxy's atomic apply, not stale pre-comment data.
+    updatedIssue = await getIssue(args.issueId);
   }
 
   // 10. Post comment (after update if not commentFirst and not already posted via commentTriggersProxy)
