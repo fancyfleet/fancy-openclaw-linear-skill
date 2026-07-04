@@ -150,6 +150,15 @@ beforeEach(() => {
   mockUpdateIssue.mockImplementation(async (id: string, input: any) => ({
     ...baseIssue,
     ...input,
+    // Simulate the write persisting: the real updateIssue re-fetches the issue, so
+    // a delegateId/assigneeId in the payload comes back as a materialized user
+    // object. AI-1769 AC3 hard-errors when the delegate write did not persist.
+    ...(input.delegateId !== undefined
+      ? { delegate: input.delegateId ? { id: input.delegateId, name: `user:${input.delegateId}` } : null }
+      : {}),
+    ...(input.assigneeId !== undefined
+      ? { assignee: input.assigneeId ? { id: input.assigneeId, name: `user:${input.assigneeId}` } : null }
+      : {}),
   }));
 });
 

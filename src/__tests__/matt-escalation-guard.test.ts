@@ -88,7 +88,18 @@ beforeEach(() => {
   });
   mockFindSemanticState.mockResolvedValue(todoState);
   mockResolveLabelIds.mockResolvedValue([]);
-  mockUpdateIssue.mockResolvedValue({ ...baseIssue, state: todoState });
+  // Simulate the write persisting: materialize delegate/assignee from the payload,
+  // as the real updateIssue re-fetch would. AI-1769 AC3 hard-errors otherwise.
+  mockUpdateIssue.mockImplementation(async (_id: string, input: any) => ({
+    ...baseIssue,
+    state: todoState,
+    ...(input.delegateId !== undefined
+      ? { delegate: input.delegateId ? { id: input.delegateId, name: `user:${input.delegateId}` } : null }
+      : {}),
+    ...(input.assigneeId !== undefined
+      ? { assignee: input.assigneeId ? { id: input.assigneeId, name: `user:${input.assigneeId}` } : null }
+      : {}),
+  }));
   mockAddComment.mockResolvedValue({
     issueId: "issue-1",
     body: "comment",
