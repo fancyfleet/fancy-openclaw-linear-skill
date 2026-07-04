@@ -49,6 +49,30 @@ function resolveOutputPath(url: URL, contentType: string, out?: string): string 
   return path.join(os.tmpdir(), `${base}${ext}`);
 }
 
+/**
+ * Derive the upload-proxy endpoint from LINEAR_PROXY_URL.
+ *
+ * LINEAR_PROXY_URL is typically `http://host:port/proxy/graphql`. We replace
+ * the final path segment with `upload` → `http://host:port/proxy/upload`.
+ * If the URL doesn't end in `/graphql`, we append `/upload` to the base.
+ */
+function resolveUploadProxyUrl(uploadUrl: string): string {
+  const proxyBase = process.env.LINEAR_PROXY_URL!;
+  let base: string;
+  try {
+    const parsed = new URL(proxyBase);
+    const parts = parsed.pathname.split("/");
+    // Drop the last segment (e.g. "graphql") and add "upload"
+    parts[parts.length - 1] = "upload";
+    parsed.pathname = parts.join("/");
+    base = parsed.toString().replace(/\/$/, "");
+  } catch {
+    // Fallback: simple string replace
+    base = proxyBase.replace(/\/graphql$/, "/upload");
+  }
+  return `${base}?url=${encodeURIComponent(uploadUrl)}`;
+}
+
 export async function fetchImage(
   url: string,
   out?: string
@@ -56,20 +80,36 @@ export async function fetchImage(
   const parsed = assertLinearHost(url);
   const apiKey = ensureApiKey();
 
+  // When LINEAR_PROXY_URL is set, the agent has a proxy token (lpx_), not a
+  // real Linear OAuth token. uploads.linear.app rejects proxy tokens with 401.
+  // Route through the connector, which swaps in the real workspace credentials
+  // (AI-1767). The host allowlist is enforced both client-side (above) and
+  // server-side in the connector.
+  const useProxy = Boolean(process.env.LINEAR_PROXY_URL);
+
   let response;
   try {
-    response = await axios.get<ArrayBuffer>(parsed.toString(), {
-      headers: { Authorization: apiKey },
-      responseType: "arraybuffer",
-      maxRedirects: 5,
-    });
+    if (useProxy) {
+      response = await axios.get<ArrayBuffer>(resolveUploadProxyUrl(parsed.toString()), {
+        headers: { Authorization: apiKey },
+        responseType: "arraybuffer",
+        maxRedirects: 5,
+      });
+    } else {
+      response = await axios.get<ArrayBuffer>(parsed.toString(), {
+        headers: { Authorization: apiKey },
+        responseType: "arraybuffer",
+        maxRedirects: 5,
+      });
+    }
   } catch (error) {
     if (axios.isAxiosError(error) && error.response) {
       if (error.response.status === 401) {
         throw new Error(
           `Linear returned 401 fetching ${parsed.toString()}. ` +
-          "This is most commonly caused by cross-agent or cross-app token scoping: uploads created by one OAuth app (or agent) are not readable by another app's token. " +
-          "Workaround: request the fetch from the same agent that uploaded the attachment, or have the uploading agent re-share it via a shared path."
+          (useProxy
+            ? "The proxy rejected the token — check that the agent's proxy token is valid and registered in the connector. "
+            : "The Linear token is missing or invalid for this upload. ")
         );
       }
       throw new Error(

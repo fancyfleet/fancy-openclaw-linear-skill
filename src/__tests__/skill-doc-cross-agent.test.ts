@@ -1,11 +1,11 @@
 /**
- * AI-1767 — AC 2 (doc path): SKILL.md must accurately describe the
- * cross-agent upload limitation and name the sanctioned workaround.
+ * AI-1767 — AC 2: SKILL.md must accurately describe the proxy-routed fetch
+ * behavior.
  *
- * The current SKILL.md asserts that uploads are "served behind the same
- * Linear API token the CLI already uses for GraphQL" — which is false when
- * the upload was created by a different OAuth app. This test verifies the
- * doc is corrected.
+ * Root cause (confirmed during AC validation): agent containers hold `lpx_`
+ * proxy tokens, not real Linear OAuth tokens. The fix routes fetch-image
+ * through the connector proxy, which swaps in real credentials. SKILL.md
+ * must not claim a cross-agent limitation that doesn't exist.
  */
 
 import fs from "node:fs";
@@ -17,51 +17,44 @@ function readSkillDoc(): string {
   return fs.readFileSync(SKILL_PATH, "utf8");
 }
 
-describe("AI-1767: SKILL.md cross-agent upload documentation (AC 2)", () => {
+function extractFetchImageSection(doc: string): string {
+  const sectionStart = doc.indexOf("Reading Image");
+  if (sectionStart < 0) return doc;
+  const sectionEnd = doc.indexOf("\n## ", sectionStart + 1);
+  return sectionEnd > sectionStart ? doc.slice(sectionStart, sectionEnd) : doc.slice(sectionStart);
+}
+
+describe("AI-1767: SKILL.md fetch-image documentation (AC 2)", () => {
   const doc = readSkillDoc();
 
-  // The "Reading Image / File Attachments" section must acknowledge that
-  // cross-agent uploads may 401.
-  it("mentions cross-agent or cross-app upload limitation in the fetch-image section", () => {
-    // Extract the section around "uploads.linear.app" or "fetch-image"
-    const sectionStart = doc.indexOf("Reading Image");
-    const sectionEnd = doc.indexOf("##", sectionStart + 1);
-    const section = sectionStart >= 0 && sectionEnd > sectionStart
-      ? doc.slice(sectionStart, sectionEnd)
-      : doc;
+  it("does not claim cross-agent uploads are unreadable (that was the wrong root cause)", () => {
+    const section = extractFetchImageSection(doc);
 
-    expect(section).toMatch(/cross-agent|cross-app|different agent|another agent/i);
+    // The false claim: "uploads created by one agent's OAuth app are not
+    // readable by another agent's token." This was disproven — the real issue
+    // was proxy token vs real token, not cross-agent scoping.
+    expect(section).not.toMatch(/cross-agent.*not.*readable|not readable.*another agent/i);
+    expect(section).not.toMatch(/cross-agent limitation/i);
   });
 
-  it("documents a sanctioned workaround for cross-agent uploads", () => {
-    const sectionStart = doc.indexOf("Reading Image");
-    const sectionEnd = doc.indexOf("##", sectionStart + 1);
-    const section = sectionStart >= 0 && sectionEnd > sectionStart
-      ? doc.slice(sectionStart, sectionEnd)
-      : doc;
+  it("documents the proxy-routed fetch behavior or does not mislead about token usage", () => {
+    const section = extractFetchImageSection(doc);
 
-    // The workaround should name something actionable: fetch from the
-    // uploading agent, use a shared path, or similar.
-    expect(section).toMatch(/workaround|uploading agent|uploader|same agent|shared/i);
+    // The doc should either mention the proxy, or at minimum not claim uploads
+    // are served behind "the same token" unqualified.
+    const mentionsProxy = /proxy/i.test(section);
+    const hasQualifiedTokenClaim = /same.*token.*when|same.*token.*proxy|routed through/i.test(section);
+
+    expect(mentionsProxy || hasQualifiedTokenClaim).toBe(true);
   });
 
-  it("no longer claims uploads are always readable behind the same token", () => {
-    const sectionStart = doc.indexOf("Reading Image");
-    const sectionEnd = doc.indexOf("##", sectionStart + 1);
-    const section = sectionStart >= 0 && sectionEnd > sectionStart
-      ? doc.slice(sectionStart, sectionEnd)
-      : doc;
+  it("mentions that fetch-image works transparently (no manual workaround needed)", () => {
+    const section = extractFetchImageSection(doc);
 
-    // The unqualified claim "served behind the same Linear API token" must be
-    // gone or qualified with a cross-agent caveat.
-    const oldClaim = /same Linear API token the CLI already uses/i;
-    if (oldClaim.test(section)) {
-      // If the old phrasing remains, it must be immediately followed by a
-      // cross-agent qualification.
-      const matchIdx = section.search(oldClaim);
-      const afterClaim = section.slice(matchIdx, matchIdx + 300);
-      expect(afterClaim).toMatch(/cross-agent|cross-app|different.*agent|except|unless|caveat|limitation/i);
-    }
-    // If the old claim is gone entirely, this test passes unconditionally.
+    // The doc should not present a manual workaround for fetching — the proxy
+    // routing is automatic. Either it mentions the proxy, or it simply
+    // documents the command as working without caveats about cross-agent.
+    const hasNoFalseWorkaround = !/workaround.*uploading agent|workaround.*same agent/i.test(section);
+    expect(hasNoFalseWorkaround).toBe(true);
   });
 });
