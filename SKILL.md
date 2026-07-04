@@ -237,10 +237,11 @@ linear edit <ID> --title/--desc      # Edit title/description
 
 ## Reading Image / File Attachments
 
-Linear `uploads.linear.app` URLs (screenshots, mockups, PDFs pasted into a description or comment) are **not public** and do **not** need a browser session cookie — a common misconception. They are served behind the **same Linear API token** the CLI already uses for GraphQL. Two gotchas trip people up:
+Linear `uploads.linear.app` URLs (screenshots, mockups, PDFs pasted into a description or comment) are **not public** and do **not** need a browser session cookie — a common misconception. They are served behind the **same Linear API token** the CLI already uses for GraphQL **when fetched by the same agent (OAuth app) that uploaded them**. Three gotchas trip people up:
 
 1. The URL returns **401** with no `Authorization` header.
 2. It **302-redirects** to a signed CDN URL, so a fetch that doesn't follow redirects fails.
+3. **Cross-agent limitation:** uploads created by one agent's OAuth app are not readable by another agent's token. If `fetch-image` returns 401 despite a valid token, the upload was likely attached by a different agent. Workaround: have the uploading agent fetch and re-share via a shared path, or request the fetch from the same agent that created the upload.
 
 Don't hand-roll the curl. Use the command — it attaches the agent's token and follows the redirect, then prints the local path so you can read the file:
 
