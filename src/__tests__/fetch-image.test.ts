@@ -18,8 +18,11 @@ const mockedGet = axios.get as jest.MockedFunction<typeof axios.get>;
 describe("fetchImage", () => {
   beforeEach(() => {
     mockedGet.mockReset();
-    // fetch-image.test.ts tests the direct (non-proxy) path. Ensure the env
-    // var is not set so the test doesn't accidentally route through the proxy.
+    // Ensure direct-mode tests run without a proxy in the environment.
+    delete process.env.LINEAR_PROXY_URL;
+  });
+
+  afterEach(() => {
     delete process.env.LINEAR_PROXY_URL;
   });
 

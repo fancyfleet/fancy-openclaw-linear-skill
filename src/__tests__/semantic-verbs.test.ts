@@ -109,6 +109,9 @@ const invalidState = { id: "state-invalid", name: "Invalid", type: "canceled" };
 
 beforeEach(() => {
   jest.resetAllMocks();
+  // Tests in this file exercise direct-API mode (no proxy). Clearing LINEAR_PROXY_URL
+  // ensures commentTriggersProxy=false so updateIssue is called with label payloads.
+  delete process.env.LINEAR_PROXY_URL;
   mockGetIssue.mockResolvedValue(baseIssue);
   mockResolveLabelIds.mockImplementation(async (_teamId: string, names: string[]) =>
     names.map((n) => LABEL_ID_MAP[n] ?? `label-unknown-${n}`)
@@ -160,6 +163,10 @@ beforeEach(() => {
       ? { assignee: input.assigneeId ? { id: input.assigneeId, name: `user:${input.assigneeId}` } : null }
       : {}),
   }));
+});
+
+afterEach(() => {
+  delete process.env.LINEAR_PROXY_URL;
 });
 
 // Helper to verify setProxyIntent was called with a specific value and then cleared
@@ -649,7 +656,7 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("escape", () => {
-    it("sets intent to 'escape', transitions to native Todo (intake re-entry), clears ownership, strips any state:* label present", async () => {
+    it("sets intent to 'escape', transitions to native terminal (Invalid), clears ownership, strips any state:* label present", async () => {
       mockGetIssue.mockResolvedValue({
         ...baseIssue,
         labels: [{ id: "label-code-review", name: "state:code-review", color: "#000" }],
@@ -663,7 +670,7 @@ describe("dev-impl semantic verbs", () => {
       }));
       expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
       expect(result.command).toBe("escape");
-      expect(result.state).toBe("Todo");
+      expect(result.state).toBe("Invalid");
     });
 
     it("omits removedLabelIds when issue has no state:* labels (API rejects non-present removal)", async () => {
@@ -860,7 +867,7 @@ describe("dev-impl semantic verbs", () => {
       validated: "done",
       acFail: "doing",
       reject: "doing",
-      escape: "todo",
+      escape: "invalid",
       demote: "backlog",
     };
 

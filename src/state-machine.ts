@@ -627,7 +627,9 @@ export async function executeTransition(
   // itself carries the intent header and triggers applyStateTransition in the proxy.
   // Post the comment FIRST and skip the issueUpdate entirely: if the update fired first,
   // the proxy would transition the state and then block the subsequent comment (wrong state).
-  const commentTriggersProxy = !!(config.omitStateId && body && config.commentMode !== "none");
+  // Gate on LINEAR_PROXY_URL: without a proxy the CLI writes labels directly via updateIssue,
+  // so the comment-triggers-proxy short-circuit must not apply in direct-API mode.
+  const commentTriggersProxy = !!(process.env.LINEAR_PROXY_URL && config.omitStateId && body && config.commentMode !== "none");
 
   // 7. Post comment (before update when commentFirst or commentTriggersProxy)
   let commentPosted = false;
@@ -770,7 +772,11 @@ export async function executeTransition(
   // exiting 0 with a half-triggered command (the AI-1767 stranding).
   // Proxy mode only: in direct-API mode the CLI writes labels itself and
   // updateIssue already throws on failure, so there is no silent path to catch.
-  if (config.omitStateId && process.env.LINEAR_PROXY_URL) {
+  // Only verify label movement for verbs that are expected to change a state:* label.
+  // Owner-change-only verbs (e.g. handoffWork) intentionally preserve state:* labels
+  // and must not be flagged as failed transitions.
+  const expectsStateLabelChange = (config.addLabels ?? []).some((n) => n.toLowerCase().startsWith("state:"));
+  if (config.omitStateId && process.env.LINEAR_PROXY_URL && expectsStateLabelChange) {
     const stateLabelSet = (labels?: { name: string }[]) =>
       (labels ?? [])
         .map((l) => l.name.toLowerCase())
