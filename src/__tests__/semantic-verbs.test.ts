@@ -109,6 +109,9 @@ const invalidState = { id: "state-invalid", name: "Invalid", type: "canceled" };
 
 beforeEach(() => {
   jest.resetAllMocks();
+  // Tests in this file exercise direct-API mode (no proxy). Clearing LINEAR_PROXY_URL
+  // ensures commentTriggersProxy=false so updateIssue is called with label payloads.
+  delete process.env.LINEAR_PROXY_URL;
   mockGetIssue.mockResolvedValue(baseIssue);
   mockResolveLabelIds.mockImplementation(async (_teamId: string, names: string[]) =>
     names.map((n) => LABEL_ID_MAP[n] ?? `label-unknown-${n}`)
@@ -160,6 +163,10 @@ beforeEach(() => {
       ? { assignee: input.assigneeId ? { id: input.assigneeId, name: `user:${input.assigneeId}` } : null }
       : {}),
   }));
+});
+
+afterEach(() => {
+  delete process.env.LINEAR_PROXY_URL;
 });
 
 // Helper to verify setProxyIntent was called with a specific value and then cleared

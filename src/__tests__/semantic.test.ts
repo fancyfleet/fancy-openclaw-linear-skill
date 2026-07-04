@@ -79,6 +79,8 @@ const doneState = { id: "state-done", name: "Done", type: "completed" };
 
 beforeEach(() => {
   jest.resetAllMocks();
+  // Exercise direct-API mode; clear proxy URL so commentTriggersProxy=false.
+  delete process.env.LINEAR_PROXY_URL;
   mockGetComments.mockResolvedValue([]);
   mockGetIssue.mockResolvedValue(baseIssue);
   mockGetSelfUser.mockResolvedValue({ id: "user-igor", name: "Igor (Back End Dev)", email: "igor@test.com" });
@@ -160,6 +162,10 @@ beforeEach(() => {
     if (missing.length) throw new Error(`Label(s) not found: ${missing.join(", ")}`);
     return ids;
   });
+});
+
+afterEach(() => {
+  delete process.env.LINEAR_PROXY_URL;
 });
 
 describe("observeIssue", () => {

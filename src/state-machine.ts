@@ -772,7 +772,11 @@ export async function executeTransition(
   // exiting 0 with a half-triggered command (the AI-1767 stranding).
   // Proxy mode only: in direct-API mode the CLI writes labels itself and
   // updateIssue already throws on failure, so there is no silent path to catch.
-  if (config.omitStateId && process.env.LINEAR_PROXY_URL) {
+  // Only verify label movement for verbs that are expected to change a state:* label.
+  // Owner-change-only verbs (e.g. handoffWork) intentionally preserve state:* labels
+  // and must not be flagged as failed transitions.
+  const expectsStateLabelChange = (config.addLabels ?? []).some((n) => n.toLowerCase().startsWith("state:"));
+  if (config.omitStateId && process.env.LINEAR_PROXY_URL && expectsStateLabelChange) {
     const stateLabelSet = (labels?: { name: string }[]) =>
       (labels ?? [])
         .map((l) => l.name.toLowerCase())

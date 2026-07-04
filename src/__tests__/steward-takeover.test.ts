@@ -101,6 +101,7 @@ const doneState = { id: "state-done", name: "Done", type: "completed", position:
 
 beforeEach(() => {
   jest.resetAllMocks();
+  delete process.env.LINEAR_PROXY_URL;
   mockGetIssue.mockResolvedValue(deploymentIssueWithAbsentDelegate);
   mockGetSelfUser.mockResolvedValue(selfAi);
   mockResolveLabelIds.mockImplementation(async (_teamId: string, names: string[]) =>
@@ -130,17 +131,31 @@ beforeEach(() => {
     commentBodyLength: 10,
     body: "Steward takeover.",
   });
-  mockUpdateIssue.mockImplementation(async (_id: string, input: any) => ({
-    ...deploymentIssueWithAbsentDelegate,
-    delegate: input.delegateId === null
-      ? null
-      : input.delegateId === "user-ai"
-        ? selfAi
-        : deploymentIssueWithAbsentDelegate.delegate,
-    assignee: "assigneeId" in input ? null : deploymentIssueWithAbsentDelegate.assignee,
-    labels: deploymentIssueWithAbsentDelegate.labels,
-    state: input.stateId ? doneState : deploymentIssueWithAbsentDelegate.state,
-  }));
+  mockUpdateIssue.mockImplementation(async (_id: string, input: any) => {
+    // Simulate label changes: add added labels, remove removed labels.
+    const currentLabels = deploymentIssueWithAbsentDelegate.labels;
+    const removedIds: string[] = input.removedLabelIds ?? [];
+    const addedIds: string[] = input.addedLabelIds ?? [];
+    const afterLabels = [
+      ...currentLabels.filter((l: any) => !removedIds.includes(l.id)),
+      ...addedIds.map((id: string) => ({ id, name: Object.entries(LABEL_ID_MAP).find(([, v]) => v === id)?.[0] ?? id, color: "#000" })),
+    ];
+    return {
+      ...deploymentIssueWithAbsentDelegate,
+      delegate: input.delegateId === null
+        ? null
+        : input.delegateId === "user-ai"
+          ? selfAi
+          : deploymentIssueWithAbsentDelegate.delegate,
+      assignee: "assigneeId" in input ? null : deploymentIssueWithAbsentDelegate.assignee,
+      labels: afterLabels,
+      state: input.stateId ? doneState : deploymentIssueWithAbsentDelegate.state,
+    };
+  });
+});
+
+afterEach(() => {
+  delete process.env.LINEAR_PROXY_URL;
 });
 
 // Helper: assert intent was set then cleared in order.
