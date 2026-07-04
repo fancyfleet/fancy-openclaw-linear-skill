@@ -788,6 +788,8 @@ export async function accept(
       targetState: "todo",
       commentMode: "optional",
       omitStateId: true,
+      addLabels: ["state:write-tests"],
+      removeLabelsIfPresent: otherStateLabels("state:write-tests"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -822,6 +824,8 @@ export async function testsReady(
       targetState: "doing",
       commentMode: "optional",
       omitStateId: true,
+      addLabels: ["state:implementation"],
+      removeLabelsIfPresent: otherStateLabels("state:implementation"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -979,6 +983,8 @@ export async function submit(
       targetState: "thinking",
       commentMode: "optional",
       omitStateId: true,
+      addLabels: ["state:code-review"],
+      removeLabelsIfPresent: otherStateLabels("state:code-review"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -1008,6 +1014,8 @@ export async function approve(
       targetState: "doing",
       commentMode: "optional",
       omitStateId: true,
+      addLabels: ["state:deployment"],
+      removeLabelsIfPresent: otherStateLabels("state:deployment"),
     });
   } finally {
     setProxyIntent(undefined);
@@ -1051,6 +1059,8 @@ export async function requestChanges(
       targetState: "doing",
       commentMode: "required",
       omitStateId: true,
+      addLabels: ["state:implementation"],
+      removeLabelsIfPresent: otherStateLabels("state:implementation"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -1082,6 +1092,8 @@ export async function deploy(
       targetState: "todo",
       commentMode: "optional",
       omitStateId: true,
+      addLabels: ["state:ac-validate"],
+      removeLabelsIfPresent: otherStateLabels("state:ac-validate"),
     });
   } finally {
     setProxyIntent(undefined);
@@ -1111,6 +1123,8 @@ export async function handoffHostDeploy(
       targetState: "todo",
       commentMode: "optional",
       omitStateId: true,
+      addLabels: ["state:host-deploy"],
+      removeLabelsIfPresent: otherStateLabels("state:host-deploy"),
     });
   } finally {
     setProxyIntent(undefined);
@@ -1140,6 +1154,8 @@ export async function hostDeployed(
       targetState: "todo",
       commentMode: "optional",
       omitStateId: true,
+      addLabels: ["state:ac-validate"],
+      removeLabelsIfPresent: otherStateLabels("state:ac-validate"),
     });
   } finally {
     setProxyIntent(undefined);
@@ -1169,6 +1185,7 @@ export async function validated(
       omitStateId: true,
       clearDelegate: true,
       clearAssignee: true,
+      removeLabelsIfPresent: [...DEV_IMPL_STATE_LABELS],
     });
   } finally {
     setProxyIntent(undefined);
@@ -1213,6 +1230,8 @@ export async function acFail(
       targetState: "doing",
       commentMode: "required",
       omitStateId: true,
+      addLabels: ["state:implementation"],
+      removeLabelsIfPresent: otherStateLabels("state:implementation"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -1258,6 +1277,8 @@ export async function reject(
       targetState: "doing",
       commentMode: "required",
       omitStateId: true,
+      addLabels: ["state:implementation"],
+      removeLabelsIfPresent: otherStateLabels("state:implementation"),
       ...(target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
     });
   } finally {
@@ -1346,15 +1367,16 @@ export async function escape(
       commentFile: options?.commentFile,
       forceDuplicate: options?.forceDuplicate,
     }, {
-      // escape re-enters at intake (native Todo). The connector's break_glass.to
-      // is "intake", so applyStateTransition stamps state:intake and delegates
-      // to the steward. omitStateId skips the CLI's own label write (connector
-      // handles it); clearDelegate/clearAssignee wipe the prior owner.
-      targetState: "todo",
+      // escape is a TERMINAL state (dev-impl.yaml). It must land in a native
+      // terminal (canceled-type "Invalid") state so the connector treats the
+      // ticket as terminal and stops dispatching. clearDelegate/clearAssignee
+      // wipe the prior owner; removeLabelsIfPresent strips any state:* projection.
+      targetState: "invalid",
       commentMode: "optional",
       omitStateId: true,
       clearDelegate: true,
       clearAssignee: true,
+      removeLabelsIfPresent: [...DEV_IMPL_STATE_LABELS],
     });
   } finally {
     setProxyIntent(undefined);
@@ -1384,6 +1406,7 @@ export async function demote(
       omitStateId: true,
       clearDelegate: true,
       clearAssignee: true,
+      removeLabelsIfPresent: [...DEV_IMPL_STATE_LABELS, "wf:dev-impl"],
     });
   } finally {
     setProxyIntent(undefined);

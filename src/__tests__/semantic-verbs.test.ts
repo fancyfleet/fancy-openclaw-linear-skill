@@ -649,7 +649,7 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("escape", () => {
-    it("sets intent to 'escape', transitions to native Todo (intake re-entry), clears ownership, strips any state:* label present", async () => {
+    it("sets intent to 'escape', transitions to native terminal (Invalid), clears ownership, strips any state:* label present", async () => {
       mockGetIssue.mockResolvedValue({
         ...baseIssue,
         labels: [{ id: "label-code-review", name: "state:code-review", color: "#000" }],
@@ -663,7 +663,7 @@ describe("dev-impl semantic verbs", () => {
       }));
       expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
       expect(result.command).toBe("escape");
-      expect(result.state).toBe("Todo");
+      expect(result.state).toBe("Invalid");
     });
 
     it("omits removedLabelIds when issue has no state:* labels (API rejects non-present removal)", async () => {
@@ -860,7 +860,7 @@ describe("dev-impl semantic verbs", () => {
       validated: "done",
       acFail: "doing",
       reject: "doing",
-      escape: "todo",
+      escape: "invalid",
       demote: "backlog",
     };
 

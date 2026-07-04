@@ -627,7 +627,9 @@ export async function executeTransition(
   // itself carries the intent header and triggers applyStateTransition in the proxy.
   // Post the comment FIRST and skip the issueUpdate entirely: if the update fired first,
   // the proxy would transition the state and then block the subsequent comment (wrong state).
-  const commentTriggersProxy = !!(config.omitStateId && body && config.commentMode !== "none");
+  // Gate on LINEAR_PROXY_URL: without a proxy the CLI writes labels directly via updateIssue,
+  // so the comment-triggers-proxy short-circuit must not apply in direct-API mode.
+  const commentTriggersProxy = !!(process.env.LINEAR_PROXY_URL && config.omitStateId && body && config.commentMode !== "none");
 
   // 7. Post comment (before update when commentFirst or commentTriggersProxy)
   let commentPosted = false;

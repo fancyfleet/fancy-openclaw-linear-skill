@@ -141,7 +141,7 @@ describe("resolveAgentName", () => {
   });
 
   it("does not warn when sources agree (case-insensitive)", () => {
-    process.env.OPENCLAW_MCP_AGENT_ID = "Hanzo";
+    process.env.OPENCLAW_MCP_AGENT_ID = "Charles";
     process.env.OPENCLAW_AGENT_NAME = "charles";
     expect(resolveAgentName().name).toBe("charles");
     expect(warnSpy).not.toHaveBeenCalled();
