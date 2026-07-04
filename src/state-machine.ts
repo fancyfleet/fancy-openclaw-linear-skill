@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 
 import { getSelfUser } from "./auth";
+import { setProxyCommentSatisfiedBy } from "./client";
 import { getComments, getIssueHistory } from "./boards";
 import { addComment, findUserByName, resolveUserWithHints, getIssue, updateIssue } from "./issues";
 import { resolveLabelIds } from "./labels";
@@ -646,9 +647,23 @@ export async function executeTransition(
       if (rateHit) {
         rateLimitBlocked = true;
         rateLimitDetails = { recentCount: rateHit.recentCount, maxAllowed: rateHit.maxAllowed, windowSeconds: rateHit.windowSeconds };
+        // AI-1769 AC1: for proxy-governed transitions the comment IS the trigger.
+        // A rate-limited comment means the feedback never landed, so the transition
+        // cannot proceed — fail loudly instead of exiting 0 with nothing applied.
+        if (commentTriggersProxy) {
+          throw new Error(
+            `${commandName} aborted: comment rate limit hit (${rateHit.recentCount} comments in ${rateHit.windowSeconds}s, max ${rateHit.maxAllowed}) ` +
+            `and this workflow transition is carried by its comment. NO state was changed. ` +
+            `Wait for the window to clear, or re-run with --force-duplicate if the comment must post now.`
+          );
+        }
       } else {
         const dup = args.forceDuplicate ? null : await findRecentDuplicate(args.issueId, body);
         if (dup) {
+          // AI-1769 AC2: an identical comment already exists on the ticket (e.g. a
+          // prior blocked attempt posted it). The feedback is carried — treat the
+          // comment step as satisfied. For proxy-governed transitions the fallback
+          // trigger mutation below still fires the atomic state transition.
           duplicateBlocked = true;
           duplicateDetails = { existingCommentId: dup.id, similarity: dup.similarity, ageSeconds: dup.ageSeconds };
           commentId = dup.id;
@@ -677,7 +692,21 @@ export async function executeTransition(
 
   // 9. Execute update (skipped when the comment already triggered applyStateTransition)
   let updatedIssue = issue;
-  if (!commentTriggersProxy) {
+  if (commentTriggersProxy && duplicateBlocked) {
+    // AI-1769 AC2: the comment was dedup-satisfied, so no commentCreate reached the
+    // proxy and the transition has not fired. Send a minimal intent-bearing
+    // issueUpdate as the trigger instead. The payload deliberately carries NO
+    // state/label/delegate facets — the proxy's applyStateTransition is the sole
+    // atomic writer of all three (AI-1612/AI-1498); a half-writable payload here
+    // is exactly how AI-1767 got stranded. The satisfied-by header lets
+    // requires_comment gates accept the pre-existing comment as the feedback.
+    setProxyCommentSatisfiedBy(commentId ?? undefined);
+    try {
+      updatedIssue = await updateIssue(args.issueId, {});
+    } finally {
+      setProxyCommentSatisfiedBy(undefined);
+    }
+  } else if (!commentTriggersProxy) {
     updatedIssue = await updateIssue(args.issueId, updatePayload);
 
     // 9.5. Post-update label verification: if the mutation set a new state:* label
@@ -733,13 +762,49 @@ export async function executeTransition(
     }
   }
 
+  // 10.5 (AI-1769 AC1): verify a proxy-governed transition actually applied.
+  // The proxy fail-opens internally (applyStateTransition errors are logged
+  // server-side and never propagate), so the CLI is the backstop: if the ticket
+  // carried a state:* workflow label before the trigger and carries the exact
+  // same set after, the transition did NOT apply — fail loudly instead of
+  // exiting 0 with a half-triggered command (the AI-1767 stranding).
+  // Proxy mode only: in direct-API mode the CLI writes labels itself and
+  // updateIssue already throws on failure, so there is no silent path to catch.
+  if (config.omitStateId && process.env.LINEAR_PROXY_URL) {
+    const stateLabelSet = (labels?: { name: string }[]) =>
+      (labels ?? [])
+        .map((l) => l.name.toLowerCase())
+        .filter((n) => n.startsWith("state:"))
+        .sort()
+        .join(",");
+    const preStateLabels = stateLabelSet(issue.labels);
+    const postStateLabels = stateLabelSet(updatedIssue.labels);
+    if (preStateLabels && preStateLabels === postStateLabels) {
+      const commentNote = commentPosted
+        ? `The comment WAS posted (${commentId}).`
+        : duplicateBlocked
+          ? `The comment was satisfied by an existing duplicate (${commentId}).`
+          : `No comment was posted.`;
+      throw new Error(
+        `${commandName} did NOT apply: ${issue.identifier} still carries [${postStateLabels}] after the transition trigger. ` +
+        `${commentNote} Label and delegate are unchanged — no partial state was written. ` +
+        `Either the connector declined the transition (check connector logs / prior proxy errors) ` +
+        `or the ticket is already in the destination state. Verify with 'linear observe-issue ${issue.identifier}'.`
+      );
+    }
+  }
+
   // 11. Build result — use actual server state from updatedIssue, not intended values,
   //     so silent rejections (e.g. app-user delegate constraint) surface immediately.
+  //     AI-1769 AC3: a delegate write that did not persist is a HARD error, not a
+  //     stderr warning beside exit 0 — a stranded delegate silently orphans the ticket.
   if (delegateId && updatedIssue.delegate?.id !== delegateId) {
-    process.stderr.write(
-      `Warning: delegate write did not persist. Expected "${delegateName}", ` +
-      `got "${updatedIssue.delegate?.name ?? "null"}". ` +
-      `If the target is an app user, ensure the Linear API constraint is satisfied (AI-1395).\n`
+    throw new Error(
+      `${commandName} failed: delegate write did not persist on ${issue.identifier}. ` +
+      `Expected "${delegateName}", got "${updatedIssue.delegate?.name ?? "null"}". ` +
+      (commentPosted ? `The comment WAS posted (${commentId}). ` : ``) +
+      `If the target is an app user, ensure the Linear API constraint is satisfied (AI-1395). ` +
+      `Inspect the ticket and re-run the command (or route via the workflow verb with --target).`
     );
   }
 

@@ -38,6 +38,19 @@ export function setProxyTarget(target: string | undefined): void {
 }
 
 /**
+ * AI-1769 AC2: when a governed transition's required comment was suppressed as a
+ * near-duplicate of an existing comment, the CLI still sends the transition
+ * mutation and points the proxy at the comment that already carries the
+ * feedback. The proxy verifies the referenced comment before treating a
+ * requires_comment gate as satisfied.
+ */
+let _proxyCommentSatisfiedBy: string | undefined;
+
+export function setProxyCommentSatisfiedBy(commentId: string | undefined): void {
+  _proxyCommentSatisfiedBy = commentId;
+}
+
+/**
  * Extra headers to attach when routing through the proxy so it can identify
  * the calling agent for logging and enforcement (Phase 2, design.md §11).
  *
@@ -51,6 +64,7 @@ function proxyHeaders(): Record<string, string> {
   const headers: Record<string, string> = { "X-Openclaw-Agent": agentId };
   if (_proxyIntent) headers["X-Openclaw-Linear-Intent"] = _proxyIntent;
   if (_proxyTarget) headers["X-Openclaw-Linear-Target"] = _proxyTarget;
+  if (_proxyCommentSatisfiedBy) headers["X-Openclaw-Comment-Satisfied-By"] = _proxyCommentSatisfiedBy;
   return headers;
 }
 

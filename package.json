@@ -1,6 +1,6 @@
 {
   "name": "fancy-openclaw-linear-skill-cli",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "main": "dist/lib.js",
   "types": "dist/lib.d.ts",
   "exports": {
