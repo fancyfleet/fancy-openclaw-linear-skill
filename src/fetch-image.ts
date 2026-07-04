@@ -67,7 +67,9 @@ export async function fetchImage(
     if (axios.isAxiosError(error) && error.response) {
       if (error.response.status === 401) {
         throw new Error(
-          "Linear returned 401 fetching the image. The token is missing or invalid for this upload."
+          `Linear returned 401 fetching ${parsed.toString()}. ` +
+          "This is most commonly caused by cross-agent or cross-app token scoping: uploads created by one OAuth app (or agent) are not readable by another app's token. " +
+          "Workaround: request the fetch from the same agent that uploaded the attachment, or have the uploading agent re-share it via a shared path."
         );
       }
       throw new Error(
