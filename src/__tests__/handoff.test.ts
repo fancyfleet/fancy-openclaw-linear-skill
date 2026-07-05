@@ -64,15 +64,16 @@ describe("handoffIssue", () => {
     });
   });
 
-  it("sends only delegateId (no assigneeId) when reviewer is an app user (AI-1395)", async () => {
+  it("sends assigneeId: null when reviewer is an app user — clears assignee (AI-1395)", async () => {
     mockFindUserByName.mockResolvedValue({ id: "user-hanzo", name: "Hanzo (Merge Gate)", app: true });
     const result = await handoffIssue("AI-100", "Hanzo (Merge Gate)", "All done here.");
     expect(mockAddComment).toHaveBeenCalledWith("AI-100", "All done here.");
     const call = mockUpdateIssue.mock.calls[0][1] as any;
     expect(call.delegateId).toBe("user-hanzo");
     expect(call.stateId).toBe("state-review");
-    // Linear rejects { assigneeId: app_user, delegateId: <anything> } — assigneeId must be absent
-    expect(call.assigneeId).toBeUndefined();
+    // assigneeId must be null to clear any existing assignee.
+    // { delegateId: app_user, assigneeId: null } is valid in the Linear API.
+    expect(call.assigneeId).toBeNull();
     expect(result.reviewer).toBe("Hanzo (Merge Gate)");
   });
 

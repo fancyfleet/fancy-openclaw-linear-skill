@@ -610,12 +610,13 @@ export async function executeTransition(
   }
 
   // Linear API constraint for app/bot user delegates (AI-1395):
-  //   • { delegateId: app_user, assigneeId: null }    → delegate silently dropped
+  //   • { delegateId: app_user, assigneeId: null }    → valid; assignee cleared, delegate set
   //   • { delegateId: app_user, assigneeId: app_user } → explicit API error
-  //   • { delegateId: app_user }                      → delegate persists
-  // When the delegate is an app user, omit assigneeId entirely so Linear
-  // accepts the write. This overrides clearAssignee for app-user delegates.
-  if (delegateId && delegateIsAppUser) {
+  //   • { delegateId: app_user, assigneeId: <human> } → explicit API error
+  //   • { delegateId: app_user }                      → valid; assignee left unchanged
+  // When the delegate is an app user with a specific (non-null) assigneeId,
+  // omit assigneeId entirely so Linear accepts the write.
+  if (delegateId && delegateIsAppUser && assigneeId !== null) {
     process.stderr.write(
       `Info: delegate "${delegateName}" is an app user; omitting assigneeId from mutation to satisfy Linear API constraint (AI-1395).\n`
     );

@@ -203,12 +203,14 @@ describe("dev-impl semantic verbs", () => {
       expect(mockAddComment).not.toHaveBeenCalled();
     });
 
-    it("omits assigneeId entirely when target is an app user (AI-1395)", async () => {
+    it("omits assigneeId entirely when target is an app user and clearAssignee is false (AI-1395)", async () => {
       mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-igor", name: "Igor (Back End Dev)", app: true });
       await accept("AI-200", "Igor (Back End Dev)");
       const call = mockUpdateIssue.mock.calls[0][1] as any;
       expect(call.delegateId).toBe("user-igor");
-      // assigneeId must be absent (undefined), not null — Linear rejects { delegateId: app_user, assigneeId: app_user }
+      // accept doesn't set clearAssignee, so assigneeId is never set to null.
+      // The guard (assigneeId !== null) still fires since undefined !== null,
+      // but the result is the same: assigneeId is omitted.
       expect(call.assigneeId).toBeUndefined();
     });
 
