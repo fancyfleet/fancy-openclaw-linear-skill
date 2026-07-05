@@ -628,6 +628,13 @@ export async function executeTransition(
   // Post the comment FIRST and skip the issueUpdate entirely: if the update fired first,
   // the proxy would transition the state and then block the subsequent comment (wrong state).
   const commentTriggersProxy = !!(config.omitStateId && body && config.commentMode !== "none");
+  // AI-1840: any omitStateId transition in proxy mode is proxy-governed — the proxy's
+  // applyStateTransition is the sole atomic writer of delegate/assignee/label/state.
+  // When there is no comment to carry the intent, the CLI must still send an empty {}
+  // issueUpdate (carrying the intent header) as the trigger. Previously, the CLI sent
+  // delegateId:null + assigneeId:null directly, which the proxy's Layer 2 intent-path
+  // check (checkRawMutationInterception) blocked as ungoverned direct field writes.
+  const isProxyGoverned = !!config.omitStateId && !!process.env.LINEAR_PROXY_URL;
 
   // 7. Post comment (before update when commentFirst or commentTriggersProxy)
   let commentPosted = false;
@@ -684,9 +691,15 @@ export async function executeTransition(
   // AI-1498: governed dev-impl verbs omit stateId — the connector proxy is the
   // sole atomic writer of the native column. All other (non-governed) commands
   // still write stateId here, since the proxy forwards them unchanged.
+  // AI-1840: for proxy-governed transitions, delegate/assignee are ALSO the proxy's
+  // responsibility (applyStateTransition writes them atomically). The CLI must not
+  // send these fields directly — the proxy's Layer 2 intent-path check blocks them
+  // as ungoverned direct field writes.
   const updatePayload: Record<string, any> = config.omitStateId ? {} : { stateId: state!.id };
-  if (delegateId !== undefined) updatePayload.delegateId = delegateId;
-  if (assigneeId !== undefined) updatePayload.assigneeId = assigneeId;
+  if (!isProxyGoverned) {
+    if (delegateId !== undefined) updatePayload.delegateId = delegateId;
+    if (assigneeId !== undefined) updatePayload.assigneeId = assigneeId;
+  }
   if (addedLabelIds?.length) updatePayload.addedLabelIds = addedLabelIds;
   if (removedLabelIds?.length) updatePayload.removedLabelIds = removedLabelIds;
 
@@ -706,6 +719,14 @@ export async function executeTransition(
     } finally {
       setProxyCommentSatisfiedBy(undefined);
     }
+  } else if (!commentTriggersProxy && isProxyGoverned) {
+    // AI-1840: proxy-governed transition with no comment (or commentMode:none).
+    // Send an empty {} issueUpdate carrying the intent header as the trigger.
+    // The proxy's applyStateTransition handles delegate/assignee clearing atomically
+    // (delegate → null for terminal states). The CLI must not write workflow fields
+    // directly — the proxy's Layer 2 intent-path check blocks delegate/assignee
+    // writes as ungoverned direct mutations.
+    updatedIssue = await updateIssue(args.issueId, {});
   } else if (!commentTriggersProxy) {
     updatedIssue = await updateIssue(args.issueId, updatePayload);
 
