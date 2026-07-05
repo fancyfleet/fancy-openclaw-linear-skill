@@ -41,7 +41,7 @@ export async function handoffIssue(
   // For app-user reviewers, send only delegateId and omit assigneeId entirely.
   const reviewerIsAppUser = reviewer.app === true;
   const updatePayload = reviewerIsAppUser
-    ? { delegateId: reviewer.id, stateId: reviewState.id }
+    ? { delegateId: reviewer.id, stateId: reviewState.id, assigneeId: null }
     : { assigneeId: reviewer.id, stateId: reviewState.id, delegateId: null };
 
   try {
