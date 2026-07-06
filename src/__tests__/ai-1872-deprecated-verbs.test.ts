@@ -32,7 +32,7 @@ describe("AC4: deprecated verb functions — removed or throw with continue-work
     // a module-load crash that masks all other tests.
     let deployFn: ((id: string) => Promise<unknown>) | undefined;
     try {
-      const mod = await import("../semantic.js");
+      const mod = await import("../semantic");
       deployFn = (mod as Record<string, unknown>)["deploy"] as typeof deployFn;
     } catch {
       // Module failed to load — unexpected; rethrow.
@@ -52,7 +52,7 @@ describe("AC4: deprecated verb functions — removed or throw with continue-work
   it("handoffHostDeploy() function is either not exported or throws with 'continue-workflow' hint", async () => {
     let fn: ((id: string) => Promise<unknown>) | undefined;
     try {
-      const mod = await import("../semantic.js");
+      const mod = await import("../semantic");
       fn = (mod as Record<string, unknown>)["handoffHostDeploy"] as typeof fn;
     } catch {
       throw new Error("Failed to import semantic.js");
@@ -69,7 +69,7 @@ describe("AC4: deprecated verb functions — removed or throw with continue-work
   it("hostDeployed() function is either not exported or throws with 'continue-workflow' hint", async () => {
     let fn: ((id: string) => Promise<unknown>) | undefined;
     try {
-      const mod = await import("../semantic.js");
+      const mod = await import("../semantic");
       fn = (mod as Record<string, unknown>)["hostDeployed"] as typeof fn;
     } catch {
       throw new Error("Failed to import semantic.js");

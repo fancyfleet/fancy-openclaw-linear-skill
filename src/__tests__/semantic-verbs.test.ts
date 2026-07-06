@@ -24,6 +24,7 @@ import {
   deploy,
   handoffHostDeploy,
   hostDeployed,
+  continueWorkflow,
   validated,
   acFail,
   reject,
@@ -83,8 +84,8 @@ const LABEL_ID_MAP: Record<string, string> = {
   "state:write-tests": "label-write-tests",
   "state:implementation": "label-implementation",
   "state:code-review": "label-code-review",
-  "state:deployment": "label-deployment",
-  "state:host-deploy": "label-host-deploy",
+  "state:merge": "label-merge",
+  "state:deploy": "label-deploy",
   "state:ac-validate": "label-ac-validate",
   "state:escape": "label-escape",
   "wf:dev-impl": "label-wf-dev-impl",
@@ -247,11 +248,11 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("approve", () => {
-    it("sets intent to 'approve', applies state:deployment label, and omits stateId (AI-1498)", async () => {
+    it("sets intent to 'approve', applies state:merge label, and omits stateId (AI-1498; AI-1872: deployment→merge)", async () => {
       const result = await approve("AI-200");
       expectIntentSetAndCleared("approve");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        addedLabelIds: ["label-deployment"],
+        addedLabelIds: ["label-merge"],
       });
       expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
       expect(result.command).toBe("approve");
@@ -332,43 +333,9 @@ describe("dev-impl semantic verbs", () => {
     });
   });
 
-  describe("deploy", () => {
-    it("sets intent to 'deploy', applies state:ac-validate label, omits stateId, and does not clear ownership (v8: ac-validate auto-assigns Astrid)", async () => {
-      const result = await deploy("AI-200");
-      expectIntentSetAndCleared("deploy");
-      // v8: deployment → ac-validate (no longer terminal). The CLI applies the
-      // state:ac-validate label and leaves ownership for the connector to
-      // auto-assign the singleton steward (Astrid).
-      // AI-1498: stateId is no longer written by the CLI — the proxy moves the column.
-      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        addedLabelIds: ["label-ac-validate"],
-      });
-      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
-      expect((mockUpdateIssue.mock.calls[0][1] as any).delegateId).toBeUndefined();
-      expect(result.command).toBe("deploy");
-      expect(result.state).toBe("Todo");
-    });
-
-    it("strips state:deployment label when present", async () => {
-      mockGetIssue.mockResolvedValue({
-        ...baseIssue,
-        labels: [{ id: "label-deployment", name: "state:deployment", color: "#000" }],
-      });
-      await deploy("AI-200");
-      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
-        removedLabelIds: ["label-deployment"],
-      }));
-    });
-
-    it("clears intent even on error", async () => {
-      mockUpdateIssue.mockRejectedValueOnce(new Error("API error"));
-      await expect(deploy("AI-200")).rejects.toThrow("API error");
-      expect(mockSetProxyIntent).toHaveBeenCalledWith(undefined);
-    });
-
-    it("posts optional comment", async () => {
-      await deploy("AI-200", { comment: "Deployed to production." });
-      expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Deployed to production.");
+  describe("deploy (AI-1872: DEPRECATED — use continue-workflow)", () => {
+    it("throws with 'continue-workflow' hint when called", async () => {
+      await expect(deploy("AI-200")).rejects.toThrow(/continue-workflow/i);
     });
   });
 
@@ -417,72 +384,15 @@ describe("dev-impl semantic verbs", () => {
     });
   });
 
-  describe("handoffHostDeploy (v8: deployment → host-deploy)", () => {
-    it("sets intent to 'handoff-host-deploy', applies state:host-deploy label, omits stateId, leaves ownership for connector auto-assign", async () => {
-      const result = await handoffHostDeploy("AI-200");
-      expectIntentSetAndCleared("handoff-host-deploy");
-      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        addedLabelIds: ["label-host-deploy"],
-      });
-      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
-      expect((mockUpdateIssue.mock.calls[0][1] as any).delegateId).toBeUndefined();
-      expect(result.command).toBe("handoffHostDeploy");
-      expect(result.state).toBe("Todo");
-    });
-
-    it("swaps state:deployment → state:host-deploy when label present", async () => {
-      mockGetIssue.mockResolvedValue({
-        ...baseIssue,
-        labels: [{ id: "label-deployment", name: "state:deployment", color: "#000" }],
-      });
-      await handoffHostDeploy("AI-200");
-      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
-        addedLabelIds: ["label-host-deploy"],
-        removedLabelIds: ["label-deployment"],
-      }));
-    });
-
-    it("clears intent even on error", async () => {
-      mockUpdateIssue.mockRejectedValueOnce(new Error("API error"));
-      await expect(handoffHostDeploy("AI-200")).rejects.toThrow("API error");
-      expect(mockSetProxyIntent).toHaveBeenCalledWith(undefined);
-    });
-
-    it("posts optional comment", async () => {
-      await handoffHostDeploy("AI-200", { comment: "Needs connector restart." });
-      expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Needs connector restart.");
+  describe("handoffHostDeploy (AI-1872: DEPRECATED — use continue-workflow)", () => {
+    it("throws with 'continue-workflow' hint when called", async () => {
+      await expect(handoffHostDeploy("AI-200")).rejects.toThrow(/continue-workflow/i);
     });
   });
 
-  describe("hostDeployed (v8: host-deploy → ac-validate)", () => {
-    it("sets intent to 'host-deployed', applies state:ac-validate label, omits stateId, leaves ownership for connector auto-assign", async () => {
-      const result = await hostDeployed("AI-200");
-      expectIntentSetAndCleared("host-deployed");
-      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        addedLabelIds: ["label-ac-validate"],
-      });
-      expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
-      expect((mockUpdateIssue.mock.calls[0][1] as any).delegateId).toBeUndefined();
-      expect(result.command).toBe("hostDeployed");
-      expect(result.state).toBe("Todo");
-    });
-
-    it("swaps state:host-deploy → state:ac-validate when label present", async () => {
-      mockGetIssue.mockResolvedValue({
-        ...baseIssue,
-        labels: [{ id: "label-host-deploy", name: "state:host-deploy", color: "#000" }],
-      });
-      await hostDeployed("AI-200");
-      expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
-        addedLabelIds: ["label-ac-validate"],
-        removedLabelIds: ["label-host-deploy"],
-      }));
-    });
-
-    it("clears intent even on error", async () => {
-      mockUpdateIssue.mockRejectedValueOnce(new Error("API error"));
-      await expect(hostDeployed("AI-200")).rejects.toThrow("API error");
-      expect(mockSetProxyIntent).toHaveBeenCalledWith(undefined);
+  describe("hostDeployed (AI-1872: DEPRECATED — use continue-workflow)", () => {
+    it("throws with 'continue-workflow' hint when called", async () => {
+      await expect(hostDeployed("AI-200")).rejects.toThrow(/continue-workflow/i);
     });
   });
 
@@ -733,14 +643,14 @@ describe("dev-impl semantic verbs", () => {
   });
 
   describe("state:* label swap — atomic column + label update (AI-1388 regression guard)", () => {
-    it("approve: swaps state:code-review → state:deployment atomically when label is present", async () => {
+    it("approve: swaps state:code-review → state:merge atomically when label is present", async () => {
       mockGetIssue.mockResolvedValue({
         ...baseIssue,
         labels: [{ id: "label-code-review", name: "state:code-review", color: "#000" }],
       });
       await approve("AI-200");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
-        addedLabelIds: ["label-deployment"],
+        addedLabelIds: ["label-merge"],
         removedLabelIds: ["label-code-review"],
       });
       expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
@@ -759,15 +669,15 @@ describe("dev-impl semantic verbs", () => {
       expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
     });
 
-    it("reject: swaps state:deployment → state:implementation atomically when label is present", async () => {
+    it("reject: swaps state:merge → state:implementation atomically when label is present", async () => {
       mockGetIssue.mockResolvedValue({
         ...baseIssue,
-        labels: [{ id: "label-deployment", name: "state:deployment", color: "#000" }],
+        labels: [{ id: "label-merge", name: "state:merge", color: "#000" }],
       });
       await reject("AI-200", { comment: "Deployment failed." });
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
         addedLabelIds: ["label-implementation"],
-        removedLabelIds: ["label-deployment"],
+        removedLabelIds: ["label-merge"],
       });
       expect((mockUpdateIssue.mock.calls[0][1] as any).stateId).toBeUndefined();
     });
@@ -784,52 +694,52 @@ describe("dev-impl semantic verbs", () => {
       });
       await approve("AI-200");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
-        addedLabelIds: ["label-deployment"],
+        addedLabelIds: ["label-merge"],
         removedLabelIds: expect.arrayContaining(["label-code-review", "label-implementation"]),
       }));
     });
 
-    it("submit: clears stale state:deployment label alongside state:implementation", async () => {
+    it("submit: clears stale state:merge label alongside state:implementation", async () => {
       mockGetIssue.mockResolvedValue({
         ...baseIssue,
         labels: [
           { id: "label-implementation", name: "state:implementation", color: "#000" },
-          { id: "label-deployment", name: "state:deployment", color: "#000" },
+          { id: "label-merge", name: "state:merge", color: "#000" },
         ],
       });
       await submit("AI-200");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
         addedLabelIds: ["label-code-review"],
-        removedLabelIds: expect.arrayContaining(["label-implementation", "label-deployment"]),
+        removedLabelIds: expect.arrayContaining(["label-implementation", "label-merge"]),
       }));
     });
 
-    it("reject: clears stale state:code-review label alongside state:deployment", async () => {
+    it("reject: clears stale state:code-review label alongside state:merge", async () => {
       mockGetIssue.mockResolvedValue({
         ...baseIssue,
         labels: [
-          { id: "label-deployment", name: "state:deployment", color: "#000" },
+          { id: "label-merge", name: "state:merge", color: "#000" },
           { id: "label-code-review", name: "state:code-review", color: "#000" },
         ],
       });
       await reject("AI-200", { comment: "Failed." });
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
         addedLabelIds: ["label-implementation"],
-        removedLabelIds: expect.arrayContaining(["label-deployment", "label-code-review"]),
+        removedLabelIds: expect.arrayContaining(["label-merge", "label-code-review"]),
       }));
     });
 
-    it("deploy: clears all stale state:* labels when ticket has multiple", async () => {
+    it("continueWorkflow (deploy-stage): clears all stale state:* labels when ticket has multiple", async () => {
       mockGetIssue.mockResolvedValue({
         ...baseIssue,
         labels: [
-          { id: "label-deployment", name: "state:deployment", color: "#000" },
+          { id: "label-merge", name: "state:merge", color: "#000" },
           { id: "label-code-review", name: "state:code-review", color: "#000" },
         ],
       });
-      await deploy("AI-200");
+      await continueWorkflow("AI-200");
       expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", expect.objectContaining({
-        removedLabelIds: expect.arrayContaining(["label-deployment", "label-code-review"]),
+        removedLabelIds: expect.arrayContaining(["label-merge", "label-code-review"]),
       }));
     });
 
