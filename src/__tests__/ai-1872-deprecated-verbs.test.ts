@@ -19,6 +19,7 @@
 import { describe, it, expect } from "@jest/globals";
 import { execSync } from "child_process";
 import path from "path";
+import * as semantic from "../semantic";
 
 const CLI_CWD = path.resolve(__dirname, "../..");
 
@@ -28,16 +29,8 @@ describe("AC4: deprecated verb functions — removed or throw with continue-work
   const TARGET_MESSAGE_RE = /continue-workflow/i;
 
   it("deploy() function is either not exported or throws with 'continue-workflow' hint", async () => {
-    // Import dynamically so a missing export causes a clear test failure rather than
-    // a module-load crash that masks all other tests.
-    let deployFn: ((id: string) => Promise<unknown>) | undefined;
-    try {
-      const mod = await import("../semantic");
-      deployFn = (mod as Record<string, unknown>)["deploy"] as typeof deployFn;
-    } catch {
-      // Module failed to load — unexpected; rethrow.
-      throw new Error("Failed to import semantic.js");
-    }
+    const deployFn = (semantic as Record<string, unknown>)["deploy"] as
+      ((id: string) => Promise<unknown>) | undefined;
 
     if (deployFn === undefined) {
       // AC4 option (a): function is simply removed. Pass.
@@ -50,13 +43,8 @@ describe("AC4: deprecated verb functions — removed or throw with continue-work
   });
 
   it("handoffHostDeploy() function is either not exported or throws with 'continue-workflow' hint", async () => {
-    let fn: ((id: string) => Promise<unknown>) | undefined;
-    try {
-      const mod = await import("../semantic");
-      fn = (mod as Record<string, unknown>)["handoffHostDeploy"] as typeof fn;
-    } catch {
-      throw new Error("Failed to import semantic.js");
-    }
+    const fn = (semantic as Record<string, unknown>)["handoffHostDeploy"] as
+      ((id: string) => Promise<unknown>) | undefined;
 
     if (fn === undefined) {
       expect(fn).toBeUndefined();
@@ -67,13 +55,8 @@ describe("AC4: deprecated verb functions — removed or throw with continue-work
   });
 
   it("hostDeployed() function is either not exported or throws with 'continue-workflow' hint", async () => {
-    let fn: ((id: string) => Promise<unknown>) | undefined;
-    try {
-      const mod = await import("../semantic");
-      fn = (mod as Record<string, unknown>)["hostDeployed"] as typeof fn;
-    } catch {
-      throw new Error("Failed to import semantic.js");
-    }
+    const fn = (semantic as Record<string, unknown>)["hostDeployed"] as
+      ((id: string) => Promise<unknown>) | undefined;
 
     if (fn === undefined) {
       expect(fn).toBeUndefined();
