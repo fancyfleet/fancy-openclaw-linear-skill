@@ -14,6 +14,7 @@ import { findSemanticState, findStateByName, getWorkflowStates } from "./states"
 import { listTeams, resolveTeamId } from "./teams";
 import { uploadFile } from "./upload";
 import { fetchImage } from "./fetch-image";
+import { listGuidanceTopics, fetchGuidanceTopic } from "./guidance";
 import { deleteIssue, deleteComment } from "./delete";
 import { listLabels, addLabels, removeLabels } from "./labels";
 import { searchIssues } from "./search";
@@ -666,6 +667,17 @@ async function main(): Promise<void> {
     .description("Download a Linear image attachment using the agent's API token (handles auth + redirect), then print the saved path")
     .action(async (url: string, options: { out?: string }) => {
       await runCommand(async () => fetchImage(url, options.out), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("guidance")
+    .argument("[topic]", "Topic to fetch (omit to list available topics)")
+    .description("Fetch L3 guidance docs from the connector (capabilities, canon, deploy, ...)")
+    .action(async (topic?: string) => {
+      const human = program.opts<{ human?: boolean }>().human;
+      await runCommand(async () => {
+        if (!topic) return { topics: await listGuidanceTopics() };
+        return fetchGuidanceTopic(topic);
+      }, human);
     });
 
   // --- New commands ---
