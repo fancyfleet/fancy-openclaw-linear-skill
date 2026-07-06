@@ -690,6 +690,8 @@ export async function executeTransition(
   if (assigneeId !== undefined) updatePayload.assigneeId = assigneeId;
   if (addedLabelIds?.length) updatePayload.addedLabelIds = addedLabelIds;
   if (removedLabelIds?.length) updatePayload.removedLabelIds = removedLabelIds;
+  const proxyGovernedIssueUpdate = !!(config.omitStateId && process.env.LINEAR_PROXY_URL);
+  const effectiveUpdatePayload = proxyGovernedIssueUpdate ? {} : updatePayload;
 
   // 9. Execute update (skipped when the comment already triggered applyStateTransition)
   let updatedIssue = issue;
@@ -708,7 +710,7 @@ export async function executeTransition(
       setProxyCommentSatisfiedBy(undefined);
     }
   } else if (!commentTriggersProxy) {
-    updatedIssue = await updateIssue(args.issueId, updatePayload);
+    updatedIssue = await updateIssue(args.issueId, effectiveUpdatePayload);
 
     // 9.5. Post-update label verification: if the mutation set a new state:* label
     //      but a prior state:* label persists (concurrent write, API race), issue a

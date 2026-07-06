@@ -21,7 +21,7 @@ import { getComments } from "../boards";
 import { addComment, resolveUserWithHints, getIssue, updateIssue } from "../issues";
 import { resolveLabelIds } from "../labels";
 import { findSemanticState } from "../states";
-import { acFail, submit } from "../semantic";
+import { acFail, submit, validated } from "../semantic";
 import { setProxyCommentSatisfiedBy } from "../client";
 
 jest.mock("../client", () => ({
@@ -167,6 +167,25 @@ describe("AC2 — duplicate-blocked comment must not abort the transition (AI-17
 });
 
 describe("AC1 — no silent half-applied transitions", () => {
+  it("comment-less omitStateId transitions fire a minimal proxy trigger", async () => {
+    const doneIssue = {
+      ...preIssue,
+      state: { id: "state-done", name: "Done", type: "completed" },
+      delegate: null,
+      assignee: null,
+      labels: [{ id: "label-wf-dev-impl", name: "wf:dev-impl" }],
+    };
+    mockFindSemanticState.mockResolvedValueOnce({ id: "state-done", name: "Done", type: "completed" } as any);
+    mockUpdateIssue.mockResolvedValueOnce(doneIssue);
+
+    const result = await validated("AI-1767");
+
+    expect(mockAddComment).not.toHaveBeenCalled();
+    expect(mockUpdateIssue).toHaveBeenCalledWith("AI-1767", {});
+    expect(result.state).toBe("Done");
+    expect(result.delegate).toBeNull();
+  });
+
   it("throws on a rate-limited comment instead of skipping the trigger with exit 0", async () => {
     mockGetComments.mockResolvedValue([
       selfComment("update one", 200),
