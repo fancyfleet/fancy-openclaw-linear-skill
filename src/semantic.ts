@@ -362,7 +362,8 @@ export async function handoffWork(
     "state:intake": "todo",
     "state:implementation": "doing",
     "state:code-review": "thinking",
-    "state:deployment": "doing",
+    "state:merge": "doing",
+    "state:deploy": "doing",
   };
   const activeStateLabel = (issue.labels ?? [])
     .map((l) => l.name.toLowerCase())
@@ -406,7 +407,7 @@ export async function handoffWork(
     addLabels: options?.reviewHandoff ? [AGENT_REVIEW_LABEL] : undefined,
     // Strip any active dev-impl state:* labels when doing a generic handoff to
     // prevent column/label divergence (state=To Do but label=state:implementation).
-    removeLabelsIfPresent: ["state:intake", "state:implementation", "state:code-review", "state:deployment"],
+    removeLabelsIfPresent: ["state:intake", "state:implementation", "state:code-review", "state:merge", "state:deploy"],
   });
 }
 
@@ -753,8 +754,8 @@ const DEV_IMPL_STATE_LABELS = [
   "state:write-tests",
   "state:implementation",
   "state:code-review",
-  "state:deployment",
-  "state:host-deploy",
+  "state:merge",
+  "state:deploy",
   "state:ac-validate",
 ] as const;
 
@@ -990,8 +991,9 @@ export async function submit(
 /**
  * linear approve <id>
  *
- * Approve after code review, advancing to deployment.
- * dev-impl: code-review → deployment (code-review action)
+ * Approve after code review, advancing to merge.
+ * dev-impl: code-review → merge (code-review action)
+ * AI-1872: previously routed to `deployment`; now routes to `merge`.
  */
 export async function approve(
   issueId: string,
@@ -1060,90 +1062,42 @@ export async function requestChanges(
 }
 
 /**
- * linear deploy <id>
+ * linear deploy <id> — DEPRECATED (AI-1872)
  *
- * Merge alone is sufficient (CI auto-deploys) — advance to AC validation (v8).
- * dev-impl: deployment → ac-validate (deployment action, requires deploy:execute
- * capability). The ac-validate steward is a singleton (Astrid), so the connector
- * auto-assigns the delegate; ownership is not cleared.
+ * The `deployment` state was split into `merge` + `deploy` states with generic
+ * verbs only. Use `continue-workflow` at each state instead.
  */
-export async function deploy(
-  issueId: string,
-  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
-): Promise<SemanticResult> {
-  setProxyIntent("deploy");
-  try {
-    return await executeTransition("deploy", {
-      issueId,
-      comment: options?.comment,
-      commentFile: options?.commentFile,
-      forceDuplicate: options?.forceDuplicate,
-    }, {
-      targetState: "todo",
-      commentMode: "optional",
-      omitStateId: true,
-    });
-  } finally {
-    setProxyIntent(undefined);
-  }
+export async function deploy(_issueId: string): Promise<never> {
+  throw new Error(
+    "'deploy' is deprecated (AI-1872): the deployment state was split into merge + deploy states. " +
+    "Use 'continue-workflow' to advance through both states."
+  );
 }
 
 /**
- * linear handoff-host-deploy <id>
+ * linear handoff-host-deploy <id> — DEPRECATED (AI-1872)
  *
- * A bare-metal/host action is required after merge (restart connector + roll CLI,
- * run migrations, push TestFlight) — hand to the host-deploy owner (v8).
- * dev-impl: deployment → host-deploy (deployment action). host-deploy is a
- * singleton (Grover, host-side), so the connector auto-assigns the delegate.
+ * The `deployment` + `host-deploy` states were replaced by `merge` + `deploy`
+ * states with generic verbs only. Use `continue-workflow` to advance.
  */
-export async function handoffHostDeploy(
-  issueId: string,
-  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
-): Promise<SemanticResult> {
-  setProxyIntent("handoff-host-deploy");
-  try {
-    return await executeTransition("handoffHostDeploy", {
-      issueId,
-      comment: options?.comment,
-      commentFile: options?.commentFile,
-      forceDuplicate: options?.forceDuplicate,
-    }, {
-      targetState: "todo",
-      commentMode: "optional",
-      omitStateId: true,
-    });
-  } finally {
-    setProxyIntent(undefined);
-  }
+export async function handoffHostDeploy(_issueId: string): Promise<never> {
+  throw new Error(
+    "'handoff-host-deploy' is deprecated (AI-1872): the host-deploy state was replaced by the deploy state. " +
+    "Use 'continue-workflow' to advance from merge → deploy → ac-validate."
+  );
 }
 
 /**
- * linear host-deployed <id>
+ * linear host-deployed <id> — DEPRECATED (AI-1872)
  *
- * The host-side deploy completed — advance to AC validation (v8).
- * dev-impl: host-deploy → ac-validate (host-deploy action, requires infra:ssh
- * capability). The ac-validate steward is a singleton (Astrid), so the connector
- * auto-assigns the delegate.
+ * The `host-deploy` state was replaced by the `deploy` state with generic verbs.
+ * Use `continue-workflow` to advance from deploy → ac-validate.
  */
-export async function hostDeployed(
-  issueId: string,
-  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
-): Promise<SemanticResult> {
-  setProxyIntent("host-deployed");
-  try {
-    return await executeTransition("hostDeployed", {
-      issueId,
-      comment: options?.comment,
-      commentFile: options?.commentFile,
-      forceDuplicate: options?.forceDuplicate,
-    }, {
-      targetState: "todo",
-      commentMode: "optional",
-      omitStateId: true,
-    });
-  } finally {
-    setProxyIntent(undefined);
-  }
+export async function hostDeployed(_issueId: string): Promise<never> {
+  throw new Error(
+    "'host-deployed' is deprecated (AI-1872): the host-deploy state was replaced by the deploy state. " +
+    "Use 'continue-workflow' to advance from deploy → ac-validate."
+  );
 }
 
 /**

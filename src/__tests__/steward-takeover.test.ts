@@ -20,7 +20,7 @@ import { getSelfUser } from "../auth";
 import { addComment, resolveUserWithHints, getIssue, updateIssue } from "../issues";
 import { resolveLabelIds } from "../labels";
 import { findSemanticState, SEMANTIC_STATE_MAP } from "../states";
-import { deploy, validated, stewardTakeover } from "../semantic";
+import { validated, stewardTakeover, continueWorkflow } from "../semantic";
 import { setProxyIntent } from "../client";
 
 jest.mock("../client", () => ({
@@ -70,14 +70,14 @@ const LABEL_ID_MAP: Record<string, string> = {
   "state:write-tests": "label-write-tests",
   "state:implementation": "label-implementation",
   "state:code-review": "label-code-review",
-  "state:deployment": "label-deployment",
-  "state:host-deploy": "label-host-deploy",
+  "state:merge": "label-merge",
+  "state:deploy": "label-deploy",
   "state:ac-validate": "label-ac-validate",
   "state:escape": "label-escape",
   "wf:dev-impl": "label-wf-dev-impl",
 };
 
-// A deployment-stage ticket whose delegate (hanzo) is a different agent.
+// A merge-stage ticket whose delegate (hanzo) is a different agent.
 const deploymentIssueWithAbsentDelegate: any = {
   id: "issue-ai1566",
   identifier: "AI-1566",
@@ -85,7 +85,7 @@ const deploymentIssueWithAbsentDelegate: any = {
   team: { id: "team-ai", key: "AI", name: "AI Systems" },
   state: { id: "state-doing", name: "Doing", type: "started", position: 200 },
   labels: [
-    { id: "label-deployment", name: "state:deployment", color: "#000" },
+    { id: "label-merge", name: "state:merge", color: "#000" },
     { id: "label-wf-dev-impl", name: "wf:dev-impl", color: "#000" },
   ],
   assignee: null,
@@ -197,11 +197,11 @@ describe("stewardTakeover", () => {
     expect(result.delegate).toBe(selfAi.name);
   });
 
-  it("AC1: works when ticket is in state:host-deploy (multi-stage stuck-deploy coverage)", async () => {
+  it("AC1: works when ticket is in state:deploy (multi-stage stuck-deploy coverage)", async () => {
     mockGetIssue.mockResolvedValue({
       ...deploymentIssueWithAbsentDelegate,
       labels: [
-        { id: "label-host-deploy", name: "state:host-deploy", color: "#000" },
+        { id: "label-deploy", name: "state:deploy", color: "#000" },
         { id: "label-wf-dev-impl", name: "wf:dev-impl", color: "#000" },
       ],
     });
@@ -225,8 +225,8 @@ describe("stewardTakeover", () => {
 
 // ─── AC2 + AC4: full closure path reaches done, not escape ───────────────────
 
-describe("steward closure path: stewardTakeover → deploy → validated (AC2, AC4)", () => {
-  it("AC4 regression: deployment-stage delegate absent → stewardTakeover + deploy succeeds; escape is not required", async () => {
+describe("steward closure path: stewardTakeover → continueWorkflow → validated (AC2, AC4)", () => {
+  it("AC4 regression: merge-stage delegate absent → stewardTakeover + continueWorkflow succeeds; escape is not required", async () => {
     // Step 1: steward takes over — reassigns delegate to self.
     const takeoverResult = await stewardTakeover("AI-1566");
     expect(takeoverResult.delegate).toBe(selfAi.name);
@@ -237,18 +237,18 @@ describe("steward closure path: stewardTakeover → deploy → validated (AC2, A
       delegate: selfAi,
     });
 
-    // Step 2: steward (now the delegate) runs deploy.
-    const deployResult = await deploy("AI-1566");
-    expect(deployResult.command).toBe("deploy");
-    // deploy must apply state:ac-validate label and omit stateId (AI-1498).
+    // Step 2: steward (now the delegate) runs continueWorkflow (AI-1872: replaces deploy).
+    const continueResult = await continueWorkflow("AI-1566", undefined, { comment: "Advancing past merge." });
+    expect(continueResult.command).toBe("continue-workflow");
+    // continueWorkflow must apply state:ac-validate label and omit stateId (AI-1498).
     expect(mockUpdateIssue).toHaveBeenCalledWith(
       "AI-1566",
       expect.objectContaining({ addedLabelIds: expect.arrayContaining(["label-ac-validate"]) })
     );
-    const deployCall = mockUpdateIssue.mock.calls.find((c) =>
+    const continueCall = mockUpdateIssue.mock.calls.find((c) =>
       c[1].addedLabelIds?.includes("label-ac-validate")
     )!;
-    expect(deployCall[1]).not.toHaveProperty("stateId");
+    expect(continueCall[1]).not.toHaveProperty("stateId");
   });
 
   it("AC2: the full path yields state:done with normal validated semantics, not escape terminal", async () => {

@@ -897,7 +897,7 @@ async function main(): Promise<void> {
     .argument("<id>")
     .option("--comment <msg>", INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file")
-    .description("Sanctioned steward closure path — take over a stalled deployment-stage ticket whose delegate is absent")
+    .description("Sanctioned steward closure path — take over a stalled merge/deploy-stage ticket whose delegate is absent")
     .action(async (id: string, options: { comment?: string; commentFile?: string }) => {
       await runCommand(async () => stewardTakeover(id, options), program.opts<{ human?: boolean }>().human);
     });
@@ -987,7 +987,7 @@ async function main(): Promise<void> {
     .option("--comment <msg>", INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
-    .description("Approve after code review (dev-impl: code-review → deployment)")
+    .description("Approve after code review (dev-impl: code-review → merge)")
     .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
       await runCommand(async () => approve(id, options), program.opts<{ human?: boolean }>().human);
     });
@@ -1003,30 +1003,21 @@ async function main(): Promise<void> {
     });
 
   program.command("deploy").argument("<id>")
-    .option("--comment <msg>", INLINE_COMMENT_HELP)
-    .option("--comment-file <path>", "Read comment from file")
-    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
-    .description("Merge is sufficient (CI auto-deploys); advance to AC validation (dev-impl: deployment → ac-validate)")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
-      await runCommand(async () => deploy(id, options), program.opts<{ human?: boolean }>().human);
+    .description("DEPRECATED (AI-1872): use 'continue-workflow' — the deployment state was split into merge + deploy states")
+    .action(async (id: string) => {
+      await runCommand(async () => deploy(id), program.opts<{ human?: boolean }>().human);
     });
 
   program.command("handoff-host-deploy").argument("<id>")
-    .option("--comment <msg>", INLINE_COMMENT_HELP)
-    .option("--comment-file <path>", "Read comment from file")
-    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
-    .description("A host-side deploy step is needed after merge (dev-impl: deployment → host-deploy)")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
-      await runCommand(async () => handoffHostDeploy(id, options), program.opts<{ human?: boolean }>().human);
+    .description("DEPRECATED (AI-1872): use 'continue-workflow' — host-deploy was replaced by the deploy state")
+    .action(async (id: string) => {
+      await runCommand(async () => handoffHostDeploy(id), program.opts<{ human?: boolean }>().human);
     });
 
   program.command("host-deployed").argument("<id>")
-    .option("--comment <msg>", INLINE_COMMENT_HELP)
-    .option("--comment-file <path>", "Read comment from file")
-    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
-    .description("Host-side deploy completed; advance to AC validation (dev-impl: host-deploy → ac-validate)")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
-      await runCommand(async () => hostDeployed(id, options), program.opts<{ human?: boolean }>().human);
+    .description("DEPRECATED (AI-1872): use 'continue-workflow' — host-deploy was replaced by the deploy state")
+    .action(async (id: string) => {
+      await runCommand(async () => hostDeployed(id), program.opts<{ human?: boolean }>().human);
     });
 
   program.command("validated").argument("<id>")
@@ -1053,7 +1044,7 @@ async function main(): Promise<void> {
     .option("--comment-file <path>", "Read comment from file (overrides --comment)")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
     .option("--target <name>", "Override default implementer target")
-    .description("Reject during deployment (dev-impl: deployment → implementation). Requires --comment.")
+    .description("Reject during merge or deploy (dev-impl: merge/deploy → implementation). Requires --comment.")
     .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }) => {
       await runCommand(async () => reject(id, options), program.opts<{ human?: boolean }>().human);
     });
