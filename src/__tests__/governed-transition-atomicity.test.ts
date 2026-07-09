@@ -21,7 +21,7 @@ import { getComments } from "../boards";
 import { addComment, resolveUserWithHints, getIssue, updateIssue } from "../issues";
 import { resolveLabelIds } from "../labels";
 import { findSemanticState } from "../states";
-import { acFail, submit } from "../semantic";
+import { acFail, submit, requestRevision } from "../semantic";
 import { setProxyCommentSatisfiedBy } from "../client";
 
 jest.mock("../client", () => ({
@@ -239,5 +239,64 @@ describe("submit (requires_comment transition) shares the same recovery path", (
     expect(mockUpdateIssue).toHaveBeenCalledWith("AI-1767", {});
     expect(mockSetSatisfiedBy).toHaveBeenCalledWith("comment-submit-dup");
     expect(result.duplicateBlocked).toBe(true);
+  });
+});
+
+/**
+ * AI-1996: `request-revision` with a fresh (non-duplicate) --comment must post
+ * the comment as the SOLE proxy trigger and emit NO post-transition
+ * intent-bearing issueUpdate.
+ *
+ * Repro (astrid container, 2026-07-09, stale pre-`d49c3a7` 0.3.6 build): the CLI
+ * sent the transition-triggering issueUpdate FIRST — which advanced the ticket
+ * `ac-validate → implementation` — and then posted the comment carrying
+ * intent=request-revision. The connector's `resolveMetaIntent` re-evaluated the
+ * generic verb against the *post-transition* state (`implementation`), which has
+ * no revision transition, so the commentCreate was rejected (`[Proxy]
+ * 'request-revision' has no revision transition in state 'implementation'`), the
+ * feedback was silently dropped, and the CLI exited 1 — leaving the re-dispatched
+ * implementer with zero revision context.
+ *
+ * The comment-first machinery (`commentTriggersProxy`) makes the single
+ * commentCreate both post the comment and trigger the atomic apply, so no second
+ * intent-bearing mutation is ever sent. Guard: `updateIssue` must not be called
+ * on the happy path — any post-transition intent mutation is exactly the
+ * re-evaluation that produced the exit-1 drop.
+ */
+describe("AI-1996 — request-revision posts the comment as the sole trigger (no post-transition re-eval)", () => {
+  it("posts the --comment and emits no intent-bearing issueUpdate after the transition applies", async () => {
+    const revisionFeedback =
+      "AC1 fails: search still returns stale results on the deployed build; see the ac-validate findings.";
+    const revisedIssue = {
+      ...preIssue,
+      state: { id: "state-todo", name: "To Do", type: "unstarted" },
+      delegate: { id: "user-sage", name: "Sage (Front End Dev)" },
+      labels: IMPLEMENTATION_LABELS,
+    };
+    // getIssue #1 = pre-forward fetch (ac-validate); #2 = post-proxy re-fetch (implementation).
+    mockGetIssue.mockReset();
+    mockGetIssue.mockResolvedValueOnce(preIssue);
+    mockGetIssue.mockResolvedValueOnce(revisedIssue);
+    mockAddComment.mockResolvedValue({
+      issueId: "issue-1",
+      commentId: "comment-revision",
+      commentUrl: "https://linear.app/c/revision",
+      commentCreatedAt: "2026-07-09T05:55:48Z",
+      commentBodyLength: revisionFeedback.length,
+      body: revisionFeedback,
+    } as any);
+
+    const result = await requestRevision("AI-1954", "sage", { comment: revisionFeedback });
+
+    // The comment posted — the revision feedback is carried, not dropped.
+    expect(mockAddComment).toHaveBeenCalledWith("AI-1954", revisionFeedback);
+    expect(result.commentPosted).toBe(true);
+    // The comment IS the trigger: no post-transition intent-bearing issueUpdate is
+    // sent, so the connector never re-evaluates request-revision against the
+    // already-advanced `implementation` state (the AI-1996 exit-1 drop).
+    expect(mockUpdateIssue).not.toHaveBeenCalled();
+    // The label-verification backstop saw the state:* label move, so the transition
+    // applied and the command did not throw.
+    expect(result.state).toBe("To Do");
   });
 });
