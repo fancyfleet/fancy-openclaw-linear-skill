@@ -152,44 +152,119 @@ export class LinearApiError extends Error {
   }
 }
 
+/**
+ * Connection-establishment failure codes (G-15). These mean the request never
+ * reached Linear — the socket was refused, reset, timed out, or DNS failed — so
+ * retrying is safe even for mutations (nothing was applied). Post-response
+ * errors (HTTP 4xx, GraphQL errors) are deterministic and are NOT retried.
+ */
+const CONNECTION_FAILURE_CODES = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNABORTED",
+]);
+
+function routedThroughProxy(): boolean {
+  return Boolean(process.env.LINEAR_PROXY_URL);
+}
+
+/** Total attempts (initial + retries) before giving up. Default 3. */
+function proxyMaxAttempts(): number {
+  const n = Number.parseInt(process.env.LINEAR_PROXY_MAX_ATTEMPTS ?? "", 10);
+  return Number.isFinite(n) && n >= 1 ? n : 3;
+}
+
+/** Base backoff in ms (exponential, with jitter). Default 500ms. */
+function proxyRetryBaseMs(): number {
+  const n = Number.parseInt(process.env.LINEAR_PROXY_RETRY_BASE_MS ?? "", 10);
+  return Number.isFinite(n) && n >= 0 ? n : 500;
+}
+
+/**
+ * True when an axios error indicates the connector/proxy itself is unreachable
+ * (G-15) — a refused/reset/timed-out connection to the proxy, or a fronting
+ * reverse proxy returning 502/503/504 because the backend is down.
+ */
+function isProxyUnreachable(error: unknown): boolean {
+  if (!routedThroughProxy()) return false;
+  if (!axios.isAxiosError(error)) return false;
+  if (!error.response && error.code && CONNECTION_FAILURE_CODES.has(error.code)) {
+    return true;
+  }
+  if (error.response && [502, 503, 504].includes(error.response.status)) {
+    return true;
+  }
+  return false;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function linearGraphQL<T>(
   query: string,
   variables?: Record<string, unknown>
 ): Promise<T> {
   const apiKey = ensureApiKey();
   const apiUrl = resolveApiUrl();
+  const maxAttempts = routedThroughProxy() ? proxyMaxAttempts() : 1;
   let response;
-  try {
-    response = await axios.post<LinearGraphQLResponse<T>>(
-      apiUrl,
-      { query, variables },
-      {
-        headers: {
-          Authorization: apiKey,
-          "Content-Type": "application/json",
-          ...proxyHeaders(),
-        },
-      }
-    );
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      if (error.response) {
-        const errors = (error.response.data?.errors ?? []) as GraphQLErrorDetail[];
-        if (error.response.status === 401) {
-          throw new LinearApiError("Unauthorized", "UNAUTHORIZED");
+  let attempt = 0;
+  // Bounded retry → idle (G-15). A dead proxy fails closed; back off a small,
+  // bounded number of times, then surface PROXY_UNREACHABLE so the calling
+  // agent idles instead of retry-spamming a frozen fleet.
+  for (;;) {
+    attempt++;
+    try {
+      response = await axios.post<LinearGraphQLResponse<T>>(
+        apiUrl,
+        { query, variables },
+        {
+          headers: {
+            Authorization: apiKey,
+            "Content-Type": "application/json",
+            ...proxyHeaders(),
+          },
         }
-        debugDump("HTTP error response", error.response.data);
-        const message = errors.length
-          ? enrichMessage(errors)
-          : `Linear API returned HTTP ${error.response.status}: ${error.response.statusText}`;
-        throw new LinearApiError(message, `HTTP_${error.response.status}`, errors);
-      }
-      throw new LinearApiError(
-        `Network request to Linear API failed: ${error.message}. Check your internet connection and that api.linear.app is reachable.`,
-        "NETWORK_ERROR"
       );
+      break;
+    } catch (error) {
+      if (isProxyUnreachable(error)) {
+        if (attempt < maxAttempts) {
+          const backoff =
+            proxyRetryBaseMs() * 2 ** (attempt - 1) + Math.floor(Math.random() * 100);
+          debugDump(`proxy unreachable (attempt ${attempt}/${maxAttempts}); backing off ms`, backoff);
+          await sleep(backoff);
+          continue;
+        }
+        throw new LinearApiError(
+          `Linear proxy is unreachable after ${maxAttempts} attempt(s) — the connector/proxy appears to be down. ` +
+            `Backing off and idling; do NOT retry-spam. Work is fail-closed until the proxy recovers.`,
+          "PROXY_UNREACHABLE"
+        );
+      }
+      if (axios.isAxiosError(error)) {
+        if (error.response) {
+          const errors = (error.response.data?.errors ?? []) as GraphQLErrorDetail[];
+          if (error.response.status === 401) {
+            throw new LinearApiError("Unauthorized", "UNAUTHORIZED");
+          }
+          debugDump("HTTP error response", error.response.data);
+          const message = errors.length
+            ? enrichMessage(errors)
+            : `Linear API returned HTTP ${error.response.status}: ${error.response.statusText}`;
+          throw new LinearApiError(message, `HTTP_${error.response.status}`, errors);
+        }
+        throw new LinearApiError(
+          `Network request to Linear API failed: ${error.message}. Check your internet connection and that api.linear.app is reachable.`,
+          "NETWORK_ERROR"
+        );
+      }
+      throw error;
     }
-    throw error;
   }
 
   if (response.data.errors?.length) {
