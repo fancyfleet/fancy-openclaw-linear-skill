@@ -215,11 +215,17 @@ describe("dev-impl semantic verbs", () => {
       expect(call.assigneeId).toBeUndefined();
     });
 
-    it("does NOT omit assigneeId when target is a regular (non-app) user", async () => {
-      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-hanzo", name: "Hanzo (Merge Gate)", app: false });
-      await accept("AI-200", "Hanzo (Merge Gate)");
+    it("does NOT omit assigneeId when the target's app flag is unknown", async () => {
+      // AI-2050: this used to mock `app: false` ("Hanzo (Merge Gate)"), but an
+      // explicit app:false is now rejected up front — Linear only accepts app users
+      // as delegates, and every agent in the workspace is app:true. The non-app-user
+      // branch this covers is still reached whenever the flag is *unknown*, which is
+      // what resolveUserWithHints returns for its UUID passthrough.
+      const uuid = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+      mockResolveUserWithHints.mockResolvedValueOnce({ id: uuid, name: uuid });
+      await accept("AI-200", uuid);
       const call = mockUpdateIssue.mock.calls[0][1] as any;
-      expect(call.delegateId).toBe("user-hanzo");
+      expect(call.delegateId).toBe(uuid);
       expect(call.assigneeId).toBeUndefined(); // accept has no clearAssignee so assigneeId is omitted regardless
     });
   });
@@ -319,11 +325,15 @@ describe("dev-impl semantic verbs", () => {
       expect(call.assigneeId).toBeUndefined();
     });
 
-    it("re-delegates to target when --target is provided (non-app user)", async () => {
-      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-hanzo", name: "Hanzo (Merge Gate)", app: false });
-      await requestChanges("AI-200", { comment: "Needs more tests.", target: "Hanzo (Merge Gate)" });
+    it("re-delegates to target when --target is provided (app flag unknown)", async () => {
+      // AI-2050: an explicit app:false delegate is now rejected up front, so the
+      // non-app-user branch is only reachable when the flag is unknown — which is
+      // what resolveUserWithHints returns for its UUID passthrough.
+      const uuid = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+      mockResolveUserWithHints.mockResolvedValueOnce({ id: uuid, name: uuid });
+      await requestChanges("AI-200", { comment: "Needs more tests.", target: uuid });
       const call = mockUpdateIssue.mock.calls[0][1] as any;
-      expect(call.delegateId).toBe("user-hanzo");
+      expect(call.delegateId).toBe(uuid);
     });
 
     it("does not include delegateId when no --target is provided", async () => {
@@ -546,11 +556,13 @@ describe("dev-impl semantic verbs", () => {
       expect(call.assigneeId).toBeUndefined();
     });
 
-    it("re-delegates to --target when provided (AI-1495, non-app user)", async () => {
-      mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-hanzo", name: "Hanzo (Merge Gate)", app: false });
-      await reject("AI-200", { comment: "Build is red.", target: "Hanzo (Merge Gate)" });
+    it("re-delegates to --target when provided (AI-1495, app flag unknown)", async () => {
+      // AI-2050: see the requestChanges sibling — app:false is rejected up front.
+      const uuid = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+      mockResolveUserWithHints.mockResolvedValueOnce({ id: uuid, name: uuid });
+      await reject("AI-200", { comment: "Build is red.", target: uuid });
       const call = mockUpdateIssue.mock.calls[0][1] as any;
-      expect(call.delegateId).toBe("user-hanzo");
+      expect(call.delegateId).toBe(uuid);
     });
 
     it("does not include delegateId when no --target is provided (role-routing handles owner)", async () => {

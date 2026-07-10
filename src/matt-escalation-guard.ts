@@ -101,7 +101,7 @@ export function formatRefusalError(
   return [
     `MATT_ESCALATION_REFUSED: ${refusal.category}`,
     `Reason "${refusal.matchedText}" matches forbidden category "${refusal.category}".`,
-    `See ~/obsidian-vault/ai-systems/areas/agent-behavior/escalation-rules.md.`,
+    `See ~/obsidian-vault/governance/escalation-rules.md.`,
     `Default escalation surface is Ai. Use:`,
     `  linear handoff-work ${issueId} "Ai" --comment "[${refusal.category}] <one-line reason>"`,
     `If you genuinely need Matt (external blast / he named you / he's the conversational partner), pass --force-matt-escalation.`,
@@ -113,14 +113,19 @@ export async function logRefusal(
   refusal: MattEscalationRefusal,
   forced: boolean
 ): Promise<void> {
-  const logPath = path.join(
-    process.env.HOME ?? "~",
-    "obsidian-vault/ai-systems/areas/agent-behavior/escalation-pattern-log.md"
-  );
+  // AI-2050: the pre-restructure path (ai-systems/areas/agent-behavior/) no longer
+  // exists, so every refusal silently ENOENT'd into the catch below and was never
+  // logged. Create the leaf directories, but only inside an existing vault — on a
+  // host with no vault mounted, logging stays a no-op rather than growing a stray tree.
+  const vaultRoot = path.join(process.env.HOME ?? "~", "obsidian-vault");
+  const logDir = path.join(vaultRoot, "life-os/infra/agents");
+  const logPath = path.join(logDir, "escalation-pattern-log.md");
   const timestamp = new Date().toISOString();
   const action = forced ? "FORCE-BYPASS" : "REFUSED";
   const line = `| ${timestamp} | CLI | ${issueId} | ${refusal.category} | \`${refusal.matchedText}\` | ${action} |\n`;
   try {
+    await fs.access(vaultRoot);
+    await fs.mkdir(logDir, { recursive: true });
     await fs.appendFile(logPath, line);
   } catch {
     // Log failure is non-fatal

@@ -366,6 +366,49 @@ function stateAdvancementRank(state?: { name?: string | null; type?: string | nu
   }
 }
 
+/** Linear's rejection when a non-app user is passed as a delegate (AI-2050). */
+const APP_USER_DELEGATE_REJECTION = /delegateId must correspond to an app user/i;
+
+/**
+ * Translate Linear's raw app-user delegate rejection into the action the agent
+ * should take. Linear's own constraint is that a delegate must be an app user, so
+ * `app === false` is a target the API is guaranteed to reject: it is safe to fail
+ * on it up front, before the handoff comment is posted. The rejection is still
+ * translated when it does surface, for targets resolved without an `app` flag
+ * (the UUID passthrough in resolveUserWithHints).
+ */
+export function humanDelegateError(
+  commandName: string,
+  issueIdentifier: string,
+  targetName: string,
+  postedCommentId?: string | null
+): string {
+  return [
+    `${commandName} failed: "${targetName}" cannot be a delegate — Linear only accepts app users (agents) there.`,
+    `The delegate on ${issueIdentifier} was NOT changed.` +
+      (postedCommentId ? ` The comment WAS posted (${postedCommentId}).` : ``),
+    `If "${targetName}" is a human, escalate instead of delegating:`,
+    `  linear needs-human ${issueIdentifier} "${targetName}" --comment "<one-line reason>"`,
+    `To hand off to an agent, pass that agent's name (e.g. "Ai").`,
+  ].join("\n");
+}
+
+/**
+ * A delegate that survived a clear keeps the ticket in its delegate's queue.
+ * Name the delegate and the remedy — a silent exit 0 is how AI-2048 looped.
+ */
+export function warnDelegateNotCleared(
+  commandName: string,
+  issueIdentifier: string,
+  survivingDelegate: string
+): string {
+  return (
+    `Warning: ${commandName} did not clear the delegate on ${issueIdentifier} — it is still "${survivingDelegate}". ` +
+    `${issueIdentifier} will keep re-entering that agent's queue until the delegate is cleared:\n` +
+    `  linear undelegate ${issueIdentifier}\n`
+  );
+}
+
 /**
  * Whether the issue's current delegate/assignee already match what the
  * transition config would set. Used by the same-state idempotency guard so a
@@ -587,6 +630,15 @@ export async function executeTransition(
       : config.delegateName;
     if (name) {
       const user = await resolveUserWithHints(name, args.commandName);
+      // AI-2050: Linear only accepts app users (agents) as delegates. A human target
+      // used to reach the API and come back as a raw `delegateId must correspond to an
+      // app user`, which never told the agent to reach for `needs-human` instead —
+      // and by then the handoff comment had already been posted.
+      // Only an explicit `app === false` blocks: the UUID passthrough in
+      // resolveUserWithHints returns no `app` flag, and must stay allowed.
+      if (user.app === false) {
+        throw new Error(humanDelegateError(args.commandName ?? commandName, issue.identifier, user.name));
+      }
       delegateId = user.id;
       delegateName = user.name;
       delegateIsAppUser = !!user.app;
@@ -729,7 +781,19 @@ export async function executeTransition(
     // writes as ungoverned direct mutations.
     updatedIssue = await updateIssue(args.issueId, {});
   } else if (!commentTriggersProxy) {
-    updatedIssue = await updateIssue(args.issueId, updatePayload);
+    try {
+      updatedIssue = await updateIssue(args.issueId, updatePayload);
+    } catch (err) {
+      // AI-2050: `handoff-work <ID> "<human>"` used to leak Linear's raw
+      // `delegateId must correspond to an app user`, which never told the agent that
+      // `needs-human` is the verb for reaching a person. Translate it.
+      if (err instanceof Error && APP_USER_DELEGATE_REJECTION.test(err.message)) {
+        throw new Error(
+          humanDelegateError(args.commandName ?? commandName, issue.identifier, delegateName ?? "the delegate target", commentPosted ? commentId : null)
+        );
+      }
+      throw err;
+    }
 
     // 9.5. Post-update label verification: if the mutation set a new state:* label
     //      but a prior state:* label persists (concurrent write, API race), issue a
@@ -828,6 +892,16 @@ export async function executeTransition(
       `If the target is an app user, ensure the Linear API constraint is satisfied (AI-1395). ` +
       `Inspect the ticket and re-run the command (or route via the workflow verb with --target).`
     );
+  }
+
+  // AI-2050: the check above only fires for a non-null delegateId, so a delegate
+  // CLEAR that the server rejected used to pass silently. `needs-human` sets the
+  // human as assignee and clears the delegate; when only the first half landed, the
+  // ticket stayed delegated and `linear queue` re-served it to that agent every
+  // heartbeat — the AI-2048 loop (four "still blocked" comments in 90 minutes).
+  // The escalation itself did land, so warn rather than throw, and name the remedy.
+  if (delegateId === null && updatedIssue.delegate) {
+    process.stderr.write(warnDelegateNotCleared(args.commandName ?? commandName, issue.identifier, updatedIssue.delegate.name));
   }
 
   const result: TransitionResult = {

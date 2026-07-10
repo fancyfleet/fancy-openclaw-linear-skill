@@ -5,6 +5,7 @@ import {
   findRecentDuplicate,
   checkCommentRateLimit,
   getInlineCommentSafetyWarning,
+  warnDelegateNotCleared,
   type DuplicateMatch,
   type TransitionArgs,
   type TransitionResult,
@@ -595,12 +596,20 @@ export async function undelegate(
   }
 
   const updatedIssue = await updateIssue(issueId, { delegateId: null, assigneeId: null });
+
+  // AI-2050: report the delegate the server actually left behind. Claiming `null`
+  // unconditionally hid failed clears — and `undelegate` is the remedy the
+  // needs-human warning points at, so it above all must not lie about the outcome.
+  if (updatedIssue.delegate) {
+    process.stderr.write(warnDelegateNotCleared("undelegate", issue.identifier, updatedIssue.delegate.name));
+  }
+
   return {
     command: "undelegate",
     issueId: issue.identifier,
     state: updatedIssue.state?.name ?? issue.state?.name ?? "Unknown",
-    delegate: null,
-    assignee: null,
+    delegate: updatedIssue.delegate?.name ?? null,
+    assignee: updatedIssue.assignee?.name ?? null,
     commentPosted,
     duplicateBlocked,
     rateLimitBlocked,
