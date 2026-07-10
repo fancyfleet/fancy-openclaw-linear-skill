@@ -17,7 +17,7 @@
  * ignores `delegateId: null`, while a plain `{delegateId: null}` mutation (the
  * shape `undelegate` uses, and the one the corrective write issues) is honored.
  */
-import { handoffWork, needsHuman } from "../semantic";
+import { handoffWork, needsHuman, undelegate } from "../semantic";
 import { getSelfUser } from "../auth";
 import { addComment, findUserByName, resolveUserWithHints, getIssue, updateIssue } from "../issues";
 import { findSemanticState } from "../states";
@@ -227,6 +227,46 @@ describe("AI-2050 AC2 — handoff-work to a human fails with an actionable error
     const uuid = "3ac1e065-df43-40df-b535-217f21266343";
     mockResolveUserWithHints.mockResolvedValueOnce({ id: uuid, name: uuid });
     await expect(handoffWork("AI-2048", uuid, {})).resolves.toBeDefined();
+  });
+});
+
+describe("AI-2050 AC1 — undelegate reports the delegate it actually left behind", () => {
+  // `undelegate` is the remedy clearStrandedDelegate points the agent at, so it is
+  // the one command that must not claim a clear it did not achieve. Reporting
+  // `delegate: null` unconditionally is how a stranded delegate stays invisible.
+  let stderr: jest.SpyInstance;
+  beforeEach(() => { stderr = jest.spyOn(process.stderr, "write").mockImplementation(() => true); });
+  afterEach(() => stderr.mockRestore());
+  const stderrText = () => stderr.mock.calls.map((c) => String(c[0])).join("\n");
+
+  it("warns and reports the surviving delegate when the write silently drops the clear", async () => {
+    // The mutation resolves, but the delegate survives it — the AI-2048 shape, where
+    // the field is stripped rather than rejected, so there is no error to propagate.
+    mockGetIssue.mockResolvedValue({ ...delegatedIssue });
+    mockUpdateIssue.mockResolvedValue({ ...delegatedIssue, assignee: null });
+
+    const result = await undelegate("AI-2048");
+
+    expect(result.delegate).toBe(AI.name);
+    expect(stderrText()).toMatch(/did not clear the delegate/i);
+    expect(stderrText()).toContain(AI.name);
+  });
+
+  it("reports null, and stays silent, when the clear persists", async () => {
+    mockGetIssue.mockResolvedValue({ ...delegatedIssue });
+    mockUpdateIssue.mockResolvedValue({ ...delegatedIssue, delegate: null, assignee: null });
+
+    const result = await undelegate("AI-2048");
+
+    expect(result.delegate).toBeNull();
+    expect(result.assignee).toBeNull();
+    expect(stderrText()).not.toMatch(/did not clear the delegate/i);
+  });
+
+  it("propagates a hard refusal rather than reporting a clear that never happened", async () => {
+    installProxyStripBehavior({ refuseRawClear: true });
+
+    await expect(undelegate("AI-2048")).rejects.toThrow(/Direct delegate clear blocked/);
   });
 });
 

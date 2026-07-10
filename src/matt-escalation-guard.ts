@@ -117,11 +117,15 @@ export async function logRefusal(
   refusal: MattEscalationRefusal,
   forced: boolean
 ): Promise<void> {
-  const logPath = path.join(process.env.HOME ?? "~", ESCALATION_PATTERN_LOG_RELPATH);
+  const home = process.env.HOME ?? "~";
+  const logPath = path.join(home, ESCALATION_PATTERN_LOG_RELPATH);
   const timestamp = new Date().toISOString();
   const action = forced ? "FORCE-BYPASS" : "REFUSED";
   const line = `| ${timestamp} | CLI | ${issueId} | ${refusal.category} | \`${refusal.matchedText}\` | ${action} |\n`;
   try {
+    // Create the leaf dirs, but only inside an existing vault: on a host with no
+    // vault mounted, logging stays a no-op rather than growing a stray tree.
+    await fs.access(path.join(home, "obsidian-vault"));
     await fs.mkdir(path.dirname(logPath), { recursive: true });
     await fs.appendFile(logPath, line);
   } catch {

@@ -597,12 +597,25 @@ export async function undelegate(
   }
 
   const updatedIssue = await updateIssue(issueId, { delegateId: null, assigneeId: null });
+
+  // AI-2050: `undelegate` is the remedy clearStrandedDelegate points at, so above all
+  // it must not claim a clear it did not achieve. Reporting `delegate: null`
+  // unconditionally is how a stranded delegate stays invisible: the agent runs the
+  // remedy, sees success, and the ticket keeps re-entering its queue.
+  if (updatedIssue.delegate) {
+    process.stderr.write(
+      `Warning: undelegate did not clear the delegate on ${issue.identifier} — it is still ` +
+      `"${updatedIssue.delegate.name}". 'linear queue' serves tickets by delegate, so this ticket ` +
+      `will keep being handed back to ${updatedIssue.delegate.name} on every heartbeat.\n`
+    );
+  }
+
   return {
     command: "undelegate",
     issueId: issue.identifier,
     state: updatedIssue.state?.name ?? issue.state?.name ?? "Unknown",
-    delegate: null,
-    assignee: null,
+    delegate: updatedIssue.delegate?.name ?? null,
+    assignee: updatedIssue.assignee?.name ?? null,
     commentPosted,
     duplicateBlocked,
     rateLimitBlocked,
