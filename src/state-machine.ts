@@ -253,6 +253,13 @@ export interface StateTransition {
   commentMode: CommentMode;
   /** Resolve a user by name and set as delegate? If set, the string is the user name argument. */
   delegateName?: string | ((args: TransitionArgs) => string | undefined);
+  /**
+   * Reject a resolved delegate that is not a Linear app user (AI-2050 AC2).
+   * Only set on commands whose whole contract is agent→agent delegation
+   * (`handoff-work`). The `--target` re-delegation verbs deliberately leave this
+   * off: they accept whatever the caller resolved.
+   */
+  requireAppUserDelegate?: boolean;
   /** Resolve a user by name and set as assignee? If set, the string is the user name argument. */
   assigneeName?: string | ((args: TransitionArgs) => string | undefined);
   /** Set delegate to null? */
@@ -587,6 +594,24 @@ export async function executeTransition(
       : config.delegateName;
     if (name) {
       const user = await resolveUserWithHints(name, args.commandName);
+      // AI-2050 AC2: Linear only accepts app users (agents) as delegates. Handing
+      // a human to `handoff-work` used to surface the raw GraphQL error
+      // "delegateId must correspond to an app user", which names no remedy. Fail
+      // here — before the comment posts and before any mutation — and name the
+      // command that does what the caller meant.
+      //
+      // `app` is absent (not false) on the UUID-passthrough path, where the user was
+      // never fetched and appness is unknowable; only a resolved, explicitly non-app
+      // user is rejected.
+      if (config.requireAppUserDelegate && "app" in user && user.app !== true) {
+        throw new Error(
+          `${args.commandName ?? commandName} cannot delegate ${issue.identifier} to "${user.name}": ` +
+          `Linear delegates must be app users (agents), and "${user.name}" is a human. ` +
+          `To put the ticket in front of a human, escalate instead: ` +
+          `linear needs-human ${issue.identifier} "${user.name}" --comment "<why you are blocked>". ` +
+          `To hand off to an agent, pass that agent's Linear display name.`
+        );
+      }
       delegateId = user.id;
       delegateName = user.name;
       delegateIsAppUser = !!user.app;

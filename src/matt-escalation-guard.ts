@@ -101,26 +101,28 @@ export function formatRefusalError(
   return [
     `MATT_ESCALATION_REFUSED: ${refusal.category}`,
     `Reason "${refusal.matchedText}" matches forbidden category "${refusal.category}".`,
-    `See ~/obsidian-vault/ai-systems/areas/agent-behavior/escalation-rules.md.`,
+    `See ~/obsidian-vault/governance/escalation-rules.md.`,
     `Default escalation surface is Ai. Use:`,
     `  linear handoff-work ${issueId} "Ai" --comment "[${refusal.category}] <one-line reason>"`,
     `If you genuinely need Matt (external blast / he named you / he's the conversational partner), pass --force-matt-escalation.`,
   ].join("\n");
 }
 
+/** Vault-relative location of the escalation pattern log (post-restructure). */
+export const ESCALATION_PATTERN_LOG_RELPATH =
+  "obsidian-vault/life-os/infra/agents/escalation-pattern-log.md";
+
 export async function logRefusal(
   issueId: string,
   refusal: MattEscalationRefusal,
   forced: boolean
 ): Promise<void> {
-  const logPath = path.join(
-    process.env.HOME ?? "~",
-    "obsidian-vault/ai-systems/areas/agent-behavior/escalation-pattern-log.md"
-  );
+  const logPath = path.join(process.env.HOME ?? "~", ESCALATION_PATTERN_LOG_RELPATH);
   const timestamp = new Date().toISOString();
   const action = forced ? "FORCE-BYPASS" : "REFUSED";
   const line = `| ${timestamp} | CLI | ${issueId} | ${refusal.category} | \`${refusal.matchedText}\` | ${action} |\n`;
   try {
+    await fs.mkdir(path.dirname(logPath), { recursive: true });
     await fs.appendFile(logPath, line);
   } catch {
     // Log failure is non-fatal

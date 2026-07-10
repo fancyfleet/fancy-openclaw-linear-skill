@@ -383,6 +383,7 @@ export async function handoffWork(
       targetState: DEV_IMPL_STATE_TARGET[activeStateLabel],
       commentMode: "optional-with-warning",
       delegateName: (args) => args.userName,
+      requireAppUserDelegate: true,
       commentFirst: true,
       omitStateId: true,
       // Intentionally NOT clearing assignee and NOT stripping the state:* label:
@@ -402,6 +403,7 @@ export async function handoffWork(
     targetState: "todo",
     commentMode: "optional-with-warning",
     delegateName: (args) => args.userName,
+    requireAppUserDelegate: true,
     clearAssignee: true,
     commentFirst: true,
     addLabels: options?.reviewHandoff ? [AGENT_REVIEW_LABEL] : undefined,
@@ -615,6 +617,48 @@ export async function undelegate(
 }
 
 /**
+ * An escalation whose delegate survived is worse than no escalation: `linear queue`
+ * serves tickets by *delegate*, so the escalating agent keeps being handed a ticket
+ * that is, correctly, blocked on a human. AI-2048 produced four near-identical
+ * "still blocked" comments in 90 minutes this way.
+ *
+ * The transition already asks for `delegateId: null`, but the connector proxy strips
+ * null delegate/assignee fields from every intent-bearing issueUpdate (AI-1857), and
+ * its `applyStateTransition` no-ops on ad-hoc tickets — so nothing clears it. Re-issue
+ * the clear as a plain, intent-free mutation: that is the exact shape `undelegate`
+ * uses, and the proxy forwards it untouched on ad-hoc tickets.
+ *
+ * On a *governed* ticket the proxy legitimately refuses raw delegate clears. There we
+ * surface the stranded delegate and the remedy rather than throwing — the escalation
+ * itself (assignee + comment) has already landed, and failing here would strand it.
+ */
+async function clearStrandedDelegate(issueId: string, result: SemanticResult): Promise<SemanticResult> {
+  const stranded = result.delegate;
+  if (!stranded) return result;
+
+  let reason = "the delegate write did not persist";
+  try {
+    const updated = await updateIssue(issueId, { delegateId: null });
+    if (!updated.delegate) {
+      return { ...result, delegate: null };
+    }
+  } catch (err) {
+    reason = err instanceof Error ? err.message : String(err);
+  }
+
+  process.stderr.write(
+    `Warning: ${result.issueId} is assigned to ${result.assignee ?? "a human"}, but "${stranded}" is STILL its delegate. ` +
+    `'linear queue' serves tickets by delegate, so this ticket will be handed back to ${stranded} on every heartbeat ` +
+    `even though it is blocked on a human.\n` +
+    `  Reason the clear failed: ${reason}\n` +
+    `  Remedy:\n` +
+    `    linear undelegate ${result.issueId}\n` +
+    `    linear needs-human ${result.issueId} "${result.assignee ?? "<human>"}"\n`
+  );
+  return result;
+}
+
+/**
  * linear needsHuman <id> <assignee>
  *
  * Human action is required. Idempotent — safe to call multiple times.
@@ -632,8 +676,9 @@ export async function needsHuman(
   // Signal intent to the proxy so it can enforce steward-only escalation on
   // workflow tickets (Phase 2 / slice 1, design.md §11, §13).
   setProxyIntent("needs-human");
+  let result: SemanticResult;
   try {
-    return await executeTransition("needsHuman", {
+    result = await executeTransition("needsHuman", {
       issueId,
       comment: options?.comment,
       commentFile: options?.commentFile,
@@ -648,8 +693,12 @@ export async function needsHuman(
       commentFirst: true,
     });
   } finally {
+    // Cleared before the corrective write below: an intent header on that mutation
+    // is exactly what makes the proxy strip the delegate clear (AI-1857).
     setProxyIntent(undefined);
   }
+
+  return clearStrandedDelegate(issueId, result);
 }
 
 /**
