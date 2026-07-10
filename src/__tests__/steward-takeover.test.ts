@@ -240,15 +240,14 @@ describe("steward closure path: stewardTakeover → continueWorkflow → validat
     // Step 2: steward (now the delegate) runs continueWorkflow (AI-1872: replaces deploy).
     const continueResult = await continueWorkflow("AI-1566", undefined, { comment: "Advancing past merge." });
     expect(continueResult.command).toBe("continue-workflow");
-    // continueWorkflow must apply state:ac-validate label and omit stateId (AI-1498).
-    expect(mockUpdateIssue).toHaveBeenCalledWith(
-      "AI-1566",
-      expect.objectContaining({ addedLabelIds: expect.arrayContaining(["label-ac-validate"]) })
-    );
-    const continueCall = mockUpdateIssue.mock.calls.find((c) =>
-      c[1].addedLabelIds?.includes("label-ac-validate")
-    )!;
+
+    // continueWorkflow still issues its update — AI-2053: it must not defer to an
+    // absent proxy — but writes no state facets. The connector's applyStateTransition
+    // owns the native column and the state:ac-validate label (AI-1498, 15dec3b).
+    const continueCall = mockUpdateIssue.mock.calls[mockUpdateIssue.mock.calls.length - 1];
+    expect(continueCall[0]).toBe("AI-1566");
     expect(continueCall[1]).not.toHaveProperty("stateId");
+    expect(continueCall[1]).not.toHaveProperty("addedLabelIds");
   });
 
   it("AC2: the full path yields state:done with normal validated semantics, not escape terminal", async () => {

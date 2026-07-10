@@ -624,11 +624,6 @@ export async function executeTransition(
     assigneeNameResult = null;
   }
 
-  // For proxy-governed transitions (omitStateId=true) that carry a comment, the comment
-  // itself carries the intent header and triggers applyStateTransition in the proxy.
-  // Post the comment FIRST and skip the issueUpdate entirely: if the update fired first,
-  // the proxy would transition the state and then block the subsequent comment (wrong state).
-  const commentTriggersProxy = !!(config.omitStateId && body && config.commentMode !== "none");
   // AI-1840: any omitStateId transition in proxy mode is proxy-governed — the proxy's
   // applyStateTransition is the sole atomic writer of delegate/assignee/label/state.
   // When there is no comment to carry the intent, the CLI must still send an empty {}
@@ -636,6 +631,16 @@ export async function executeTransition(
   // delegateId:null + assigneeId:null directly, which the proxy's Layer 2 intent-path
   // check (checkRawMutationInterception) blocked as ungoverned direct field writes.
   const isProxyGoverned = !!config.omitStateId && !!process.env.LINEAR_PROXY_URL;
+
+  // For proxy-governed transitions that carry a comment, the comment itself carries the
+  // intent header and triggers applyStateTransition in the proxy. Post the comment FIRST
+  // and skip the issueUpdate entirely: if the update fired first, the proxy would
+  // transition the state and then block the subsequent comment (wrong state).
+  // AI-2053: this must be derived from isProxyGoverned, not from config.omitStateId alone.
+  // Without a proxy there is nothing for the comment to trigger, so deferring to it means
+  // the transition is never written at all — the comment posts and the issueUpdate at
+  // step 9 is skipped. In direct-API mode the CLI is the only writer and must do the update.
+  const commentTriggersProxy = !!(isProxyGoverned && body && config.commentMode !== "none");
 
   // 7. Post comment (before update when commentFirst or commentTriggersProxy)
   let commentPosted = false;
