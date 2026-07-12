@@ -112,6 +112,7 @@ function selfComment(body: string, ageSeconds: number): any {
 beforeEach(() => {
   jest.clearAllMocks();
   process.env.LINEAR_PROXY_URL = "http://localhost:3100/proxy";
+  process.env.LINEAR_POST_TRANSITION_VERIFY_DELAY_MS = "0"; // AI-2110: no real sleep in tests
   mockGetSelfUser.mockResolvedValue(SELF as any);
   mockGetComments.mockResolvedValue([]);
   mockGetIssue.mockResolvedValue(preIssue);
@@ -196,6 +197,36 @@ describe("AC1 — no silent half-applied transitions", () => {
     const result = await acFail("AI-1767", { comment: FEEDBACK, target: "Igor (Back End Dev)" });
     expect(result.commentPosted).toBe(true);
     expect(result.delegate).toBe("Igor (Back End Dev)");
+  });
+
+  it("AI-2110: does NOT false-negative when the post-trigger read lags the applied transition", async () => {
+    // Replica-lag replay of AI-1755: the proxy applied intake→routing atomically,
+    // but the first post-trigger re-fetch lands on a stale replica that still shows
+    // the pre-transition label set. The naive pre===post guard used to throw
+    // "did NOT apply" here. The bounded re-poll must see the converged replica and
+    // succeed — using the fresh read for the delegate check and result.
+    mockGetIssue
+      .mockResolvedValueOnce(preIssue) // line 458 pre-snapshot
+      .mockResolvedValueOnce(preIssue) // line 789 post-read: stale (replica lag)
+      .mockResolvedValueOnce(appliedIssue); // retry: replica converged
+
+    const result = await acFail("AI-1767", { comment: FEEDBACK, target: "Igor (Back End Dev)" });
+    expect(result.commentPosted).toBe(true);
+    expect(result.delegate).toBe("Igor (Back End Dev)");
+    // 3 reads: pre + stale post + one converged retry (not the full retry budget).
+    expect(mockGetIssue).toHaveBeenCalledTimes(3);
+  });
+
+  it("AI-2110: still fails loudly on a genuine fail-open (never converges across retries)", async () => {
+    // Every read — pre, post, and all retries — shows the unchanged label set.
+    // This is a real proxy decline, not replica lag: it must still throw.
+    mockGetIssue.mockResolvedValue(preIssue);
+
+    await expect(
+      acFail("AI-1767", { comment: FEEDBACK, target: "Igor (Back End Dev)" })
+    ).rejects.toThrow(/did NOT apply/);
+    // pre + post + full retry budget (3) = 5 reads before giving up.
+    expect(mockGetIssue).toHaveBeenCalledTimes(5);
   });
 
   it("skips label verification off-proxy (direct API mode)", async () => {
