@@ -291,6 +291,11 @@ export async function linearDoctor(): Promise<void> {
     console.log("✅ Using OAuth token (auto-refreshes every ~20h)\n");
   } else if (apiKey.startsWith("lin_api_")) {
     console.log("✅ Using personal API key (does not expire)\n");
+  } else if (apiKey.startsWith("lpx_")) {
+    // Broker token: the agent never holds an upstream Linear credential — the
+    // connector exchanges lpx_ for one and refreshes it. This is the normal,
+    // healthy shape for every fleet agent, so doctor must not call it unknown.
+    console.log("✅ Using proxy broker token (refreshed by the Linear connector)\n");
   } else {
     console.log(`⚠️  Unknown token format: ${apiKey.substring(0, 20)}...\n`);
   }
