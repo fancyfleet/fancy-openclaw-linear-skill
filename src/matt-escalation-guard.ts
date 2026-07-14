@@ -8,8 +8,32 @@ export interface MattEscalationRefusal {
 
 interface RefusalPattern {
   category: string;
+  /** Strong signals: unambiguous intent — always trip, regardless of context. */
   patterns: RegExp[];
+  /**
+   * Weak signals: tokens (a bare `401`, a lone `re-authenticate`) that are only
+   * escalation-worthy when they describe the agent's *own* broken auth. They are
+   * suppressed when `suppressContext` matches near the token, because there the
+   * same token is a verification/forensic signal (the desired outcome), not a
+   * failure being routed to Matt. See AI-2390.
+   */
+  weakPatterns?: RegExp[];
+  suppressContext?: RegExp;
 }
+
+/**
+ * Verification / forensic phrasing. When one of these sits next to a weak
+ * gh-auth token, the token is describing a *checked or expected* outcome
+ * ("verify the revoked token is rejected (401)"), not the agent's auth failing.
+ * Scoped by proximity in `checkMattEscalation`, so a "verify" elsewhere in a
+ * long comment cannot mask a genuine "gh auth is broken" sentence. (AI-2390)
+ */
+const GH_AUTH_VERIFICATION_CONTEXT =
+  /\b(verif(?:y|ies|ied|ying)|confirm(?:s|ed|ing)?|proof|prov(?:e[ds]?|ing)|expect(?:s|ed|ing)?|reject(?:s|ed|ing)?|revoke[ds]?|revoking|rotat(?:e[ds]?|ing|ion)|as\s+expected|should\s+(?:return|be|get|fail)|now\s+returns?|is\s+(?:dead|rejected|revoked)|leaked|fingerprint|forensic|quote[ds]?)\b/i;
+
+/** How far (chars) around a weak match to scan for verification context. */
+const SUPPRESS_WINDOW_BEFORE = 90;
+const SUPPRESS_WINDOW_AFTER = 48;
 
 const DEFAULT_PATTERNS: RefusalPattern[] = [
   {
@@ -20,10 +44,10 @@ const DEFAULT_PATTERNS: RefusalPattern[] = [
       /github\s+auth/i,
       /auth.*broken/i,
       /auth.*expired/i,
-      /\b401\b/,
-      /re-?authenticate/i,
       /gh\s+auth\s+login/i,
     ],
+    weakPatterns: [/\b401\b/, /re-?authenticate/i],
+    suppressContext: GH_AUTH_VERIFICATION_CONTEXT,
   },
   {
     category: "pr-action",
@@ -79,15 +103,40 @@ function loadEnvPatterns(): RefusalPattern[] {
 
 export function checkMattEscalation(text: string): MattEscalationRefusal | null {
   const allPatterns = [...DEFAULT_PATTERNS, ...loadEnvPatterns()];
-  for (const { category, patterns } of allPatterns) {
+  for (const { category, patterns, weakPatterns, suppressContext } of allPatterns) {
     for (const pattern of patterns) {
       const match = text.match(pattern);
       if (match) {
         return { category, matchedText: match[0] };
       }
     }
+    for (const pattern of weakPatterns ?? []) {
+      const match = text.match(pattern);
+      if (!match) continue;
+      if (suppressContext && matchIsVerificationContext(text, match, suppressContext)) {
+        continue; // token is a verification/forensic signal, not an auth failure
+      }
+      return { category, matchedText: match[0] };
+    }
   }
   return null;
+}
+
+/**
+ * True when a weak match sits inside verification/forensic phrasing. Only the
+ * window around the match is scanned, so distant unrelated wording (a "verify"
+ * paragraphs away from a real "gh auth broke") does not suppress a genuine
+ * failure signal. (AI-2390)
+ */
+function matchIsVerificationContext(
+  text: string,
+  match: RegExpMatchArray,
+  suppressContext: RegExp
+): boolean {
+  const idx = match.index ?? 0;
+  const start = Math.max(0, idx - SUPPRESS_WINDOW_BEFORE);
+  const end = idx + match[0].length + SUPPRESS_WINDOW_AFTER;
+  return suppressContext.test(text.slice(start, end));
 }
 
 export function isMattTarget(name: string): boolean {
