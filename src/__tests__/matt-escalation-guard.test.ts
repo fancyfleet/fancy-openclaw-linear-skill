@@ -128,6 +128,32 @@ describe("checkMattEscalation", () => {
     });
   });
 
+  describe("gh-auth verification/forensic phrasing — must NOT be refused (AI-2390)", () => {
+    it.each([
+      // The exact AI-2335 comment line that false-positived.
+      ["verify the leaked fingerprint is rejected (`401`)"],
+      ["Confirmed: the revoked token now returns 401 as expected — rotation done"],
+      ["Rotation verified — the old credential is dead (401 on every call)"],
+      ["Forensic note: the audit log quotes an observed 401 from the leaked key"],
+      ["Proof the revoked token is dead: re-authentication now fails with 401"],
+      ["Expected outcome once rotated: gh should return 401 for the old token"],
+    ])("allows: %s", (text) => {
+      expect(checkMattEscalation(text)).toBeNull();
+    });
+
+    it.each([
+      // Genuine own-auth breakage must still trip, even when the word appears far away.
+      ["Got a 401 from the API"],
+      ["Need to re-authenticate with GitHub"],
+      // A real failure sentence is not masked by a stray verification word elsewhere.
+      ["I verified the deploy config, but separately gh auth is broken and I got a 401 — blocked"],
+    ])("still refuses genuine breakage: %s", (text) => {
+      const result = checkMattEscalation(text);
+      expect(result).not.toBeNull();
+      expect(result?.category).toBe("gh-auth");
+    });
+  });
+
   describe("pr-action category", () => {
     it.each([
       ["Please open the PR for review"],
