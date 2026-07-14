@@ -2,3 +2,7 @@ dist/
 node_modules/
 *.bak
 *.tgz
+
+# Credential dir — never track. A committed symlink here re-arms a
+# cross-agent credential clobber on every checkout (AI-2297).
+.secrets/
