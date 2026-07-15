@@ -192,18 +192,30 @@ function loadExtrasFromSecretFiles(): void {
 export function ensureApiKey(): string {
   loadExtrasFromSecretFiles();
 
-  for (const name of envVarCandidates()) {
-    if (process.env[name]) {
-      process.env.LINEAR_API_KEY = process.env[name]!;
-      return process.env[name]!;
-    }
-  }
-
+  // Precedence: the agent's .secrets/linear.env file wins over env vars.
+  //
+  // The file is the documented single source of truth and is rewritten *live*
+  // by the connector's token-refresh path. A LINEAR_OAUTH_TOKEN baked into a
+  // container's .env at provisioning is a frozen snapshot that goes stale the
+  // moment the token rotates — and env-first would let that dead snapshot
+  // shadow the fresh file token, 401ing every CLI call. File-first makes the
+  // documented "one place only" contract actually hold, regardless of what a
+  // container's .env has seeded, and immunizes the whole fleet (AI-2427).
   for (const filePath of secretFileCandidates()) {
     const value = loadApiKeyFromEnvFile(filePath);
     if (value) {
       process.env.LINEAR_API_KEY = value;
       return value;
+    }
+  }
+
+  // Fallback: no valid file token (e.g. main agent with no workspace-derived
+  // name, or a local/dev invocation with no .secrets file). Honor an
+  // env-provided token so those contexts keep working.
+  for (const name of envVarCandidates()) {
+    if (process.env[name]) {
+      process.env.LINEAR_API_KEY = process.env[name]!;
+      return process.env[name]!;
     }
   }
 

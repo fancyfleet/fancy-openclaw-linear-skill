@@ -1,4 +1,8 @@
-import { checkAuth, resolveAgentName, resolveAgentNameFromCwd } from "../auth";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { checkAuth, ensureApiKey, resolveAgentName, resolveAgentNameFromCwd } from "../auth";
 import { LinearApiError, linearGraphQL } from "../client";
 
 jest.mock("../client", () => ({
@@ -57,6 +61,73 @@ describe("checkAuth", () => {
     mockedLinearGraphQL.mockRejectedValue(new LinearApiError("Unauthorized", "UNAUTHORIZED"));
 
     await expect(checkAuth()).rejects.toThrow("LINEAR_API_KEY is invalid: Unauthorized");
+  });
+});
+
+describe("ensureApiKey precedence (AI-2427: file wins over stale env)", () => {
+  // Include OPENCLAW_* name sources + OPENCLAW_CONFIG_DIR so the live container
+  // env (which sets OPENCLAW_MCP_AGENT_ID/OPENCLAW_AGENT_NAME) can't leak in and
+  // outrank the cwd-derived agent name this test relies on.
+  const ENV_KEYS = [
+    "LINEAR_OAUTH_TOKEN",
+    "LINEAR_API_KEY",
+    "LINEAR_DEVELOPER_TOKEN",
+    "OPENCLAW_MCP_AGENT_ID",
+    "OPENCLAW_AGENT_NAME",
+    "OPENCLAW_CONFIG_DIR",
+    "HOME",
+  ] as const;
+  const saved: Partial<Record<typeof ENV_KEYS[number], string | undefined>> = {};
+  let cwdSpy: jest.SpyInstance;
+  let tmpHome: string;
+
+  const AGENT = "testagent";
+  const writeSecretFile = (token: string): void => {
+    const dir = path.join(tmpHome, ".openclaw", "workspace", AGENT, ".secrets");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "linear.env"), `LINEAR_OAUTH_TOKEN=${token}\n`);
+  };
+
+  beforeEach(() => {
+    for (const key of ENV_KEYS) {
+      saved[key] = process.env[key];
+      delete process.env[key];
+    }
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "linear-auth-test-"));
+    process.env.HOME = tmpHome;
+    // Resolve the agent name to `testagent` so the secret file path is derived.
+    cwdSpy = jest
+      .spyOn(process, "cwd")
+      .mockReturnValue(path.join(tmpHome, ".openclaw", "workspace", AGENT));
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    cwdSpy.mockRestore();
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  });
+
+  it("returns the file token even when a (stale) env token is present", () => {
+    writeSecretFile("file-token-fresh");
+    process.env.LINEAR_OAUTH_TOKEN = "env-token-stale";
+
+    expect(ensureApiKey()).toBe("file-token-fresh");
+    // process.env.LINEAR_API_KEY is normalized to the resolved token.
+    expect(process.env.LINEAR_API_KEY).toBe("file-token-fresh");
+  });
+
+  it("falls back to the env token when no secret file exists", () => {
+    // No writeSecretFile() call — file absent.
+    process.env.LINEAR_OAUTH_TOKEN = "env-token-only";
+
+    expect(ensureApiKey()).toBe("env-token-only");
+  });
+
+  it("throws when neither a file token nor an env token is available", () => {
+    expect(() => ensureApiKey()).toThrow("No Linear API key found for agent");
   });
 });
 
