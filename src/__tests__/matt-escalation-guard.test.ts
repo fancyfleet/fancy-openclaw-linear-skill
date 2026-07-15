@@ -204,14 +204,36 @@ describe("checkMattEscalation", () => {
     });
   });
 
-  describe("credential-rotation category", () => {
+  describe("credential-rotation category — intent-gated (AI-2393)", () => {
     it.each([
+      // Existing refuse cases: rotation token + request intent, no verification cue.
       ["Need to refresh the token before continuing"],
       ["Please rotate credentials for the service"],
+      // Matt-directed request with an auth-failure cue.
+      ["Matt, can you rotate the credential? the service account's is expired"],
+      // Agent's-own-auth-failure intent without an explicit request verb.
+      ["The API refresh token is expired and everything is failing — blocked"],
     ])("refuses: %s", (text) => {
       const result = checkMattEscalation(text);
       expect(result).not.toBeNull();
       expect(result?.category).toBe("credential-rotation");
+    });
+  });
+
+  describe("credential-rotation verification/forensic phrasing — must NOT be refused (AI-2393)", () => {
+    it.each([
+      // Intent present (`need you to`) but it's a verify ask, not a rotate-for-me ask.
+      ["I refreshed the token and need you to confirm the old one is dead"],
+      // Forensic write-up: no request/failure intent at all.
+      ["Forensic note: the audit log documents the rotate credential step that was performed"],
+      // Post-incident report mentioning rotation — no intent cue, plus post-incident backstop.
+      ["Post-incident write-up: the leaked key was handled by a rotate credential pass; observed clean since"],
+      // Verification of a rotated credential — no request/failure intent.
+      ["Verify the rotated credential is rejected before we close this out"],
+      // Neutral runbook mention with zero intent.
+      ["The runbook's rotate credential section documents how the refresh token flow works"],
+    ])("allows: %s", (text) => {
+      expect(checkMattEscalation(text)).toBeNull();
     });
   });
 
