@@ -52,8 +52,8 @@ describe("AI-2003 — CLI version header on proxied requests", () => {
 
     const headers = lastPostHeaders();
     expect(headers["X-Openclaw-Linear-Cli-Version"]).toBe(pkg.version);
-    // sanity: the version we ship the header with is the bumped 0.3.8 release
-    expect(pkg.version).toBe("0.3.8");
+    // sanity: the version we ship the header with is the bumped 0.3.9 release
+    expect(pkg.version).toBe("0.3.9");
     expect(headers["X-Openclaw-Agent"]).toBe("igor");
   });
 
