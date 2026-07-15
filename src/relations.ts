@@ -66,7 +66,10 @@ export async function createBlockingRelation(
 }
 
 export async function removeBlockingRelation(issueId: string, relatedIssueId: string): Promise<{ removed: boolean }> {
-  const relations = await listRelations(issueId);
+  let relations = await listRelations(issueId);
+  if (relations.length === 0) {
+    relations = await listRelations(relatedIssueId);
+  }
   const relation = relations.find((candidate) => {
     const a = candidate.issue.identifier;
     const b = candidate.relatedIssue.identifier;
