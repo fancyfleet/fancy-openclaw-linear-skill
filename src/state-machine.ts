@@ -5,7 +5,7 @@ import { setProxyCommentSatisfiedBy } from "./client";
 import { getComments, getIssueHistory } from "./boards";
 import { addComment, findUserByName, resolveUserWithHints, getIssue, updateIssue } from "./issues";
 import { resolveLabelIds } from "./labels";
-import { findSemanticState } from "./states";
+import { findSemanticState, findStateByType } from "./states";
 import { ObserveResult, SemanticResult, historyToTimelineEvents } from "./semantic";
 
 // --- Comment deduplication ---
@@ -268,6 +268,12 @@ export interface StateTransition {
    * (generic commands: continue-workflow, request-revision).
    */
   targetState?: string;
+  /**
+   * Resolve the target state by Linear state `type` (e.g. "duplicate", "canceled")
+   * instead of by name. Mutually exclusive with `targetState`; used by consolidation
+   * verbs whose destination column is named differently per team (AI-2445).
+   */
+  targetStateType?: string;
   /** Comment policy for this command */
   commentMode: CommentMode;
   /** Resolve a user by name and set as delegate? If set, the string is the user name argument. */
@@ -538,8 +544,10 @@ export async function executeTransition(
 
   // 2. Resolve target state (skipped for proxy-resolved transitions that omit stateId)
   let state: Awaited<ReturnType<typeof findSemanticState>> | undefined;
-  if (config.targetState) {
-    state = await findSemanticState(teamId, config.targetState);
+  if (config.targetState || config.targetStateType) {
+    state = config.targetStateType
+      ? await findStateByType(teamId, config.targetStateType)
+      : await findSemanticState(teamId, config.targetState!);
 
     // 2.5. Advancement guard: skip if the current state is already further along
     //      in the workflow than the target state. This prevents consider-work

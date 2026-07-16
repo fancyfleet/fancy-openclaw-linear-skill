@@ -65,6 +65,35 @@ export async function createBlockingRelation(
   return { issueId: issue.identifier, relatedIssueId: relatedIssue.identifier, mode };
 }
 
+/**
+ * Record `issueId` as a duplicate of `canonicalId` structurally, via Linear's
+ * native `duplicate` relation rather than prose in a comment (AI-2445).
+ *
+ * Takes resolved UUIDs — callers have already fetched both issues to validate the
+ * consolidation, and re-fetching here would race that validation.
+ */
+export async function createDuplicateRelation(
+  issueId: string,
+  canonicalId: string
+): Promise<{ created: boolean }> {
+  const data = await linearGraphQL<RelationMutationResponse>(
+    `
+      mutation CreateDuplicateRelation($issueId: String!, $relatedIssueId: String!) {
+        issueRelationCreate(input: { issueId: $issueId, relatedIssueId: $relatedIssueId, type: duplicate }) {
+          success
+        }
+      }
+    `,
+    { issueId, relatedIssueId: canonicalId }
+  );
+
+  if (!data.issueRelationCreate?.success) {
+    throw new Error("Failed to create duplicate relation.");
+  }
+
+  return { created: true };
+}
+
 export async function removeBlockingRelation(issueId: string, relatedIssueId: string): Promise<{ removed: boolean }> {
   let relations = await listRelations(issueId);
   if (relations.length === 0) {
