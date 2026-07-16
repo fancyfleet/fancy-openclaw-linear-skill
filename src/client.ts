@@ -52,6 +52,27 @@ export function setProxyCommentSatisfiedBy(commentId: string | undefined): void 
 }
 
 /**
+ * AI-2479: the code artifact (`<branch>@<sha>`) a handoff declares, and an
+ * optional reason for declaring one that differs from the artifact the caller
+ * was handed. The proxy compares the declaration against the ticket's recorded
+ * disclosure and refuses an undeclared substitution.
+ *
+ * These are advisory in the CLI and enforced in the connector, deliberately: the
+ * CLI is the component being bypassed, so only the proxy — which resolves the
+ * caller from an unforgeable OAuth token — can enforce anything here.
+ */
+let _proxyCodeArtifact: string | undefined;
+let _proxySubstitutionReason: string | undefined;
+
+export function setProxyCodeArtifact(artifact: string | undefined): void {
+  _proxyCodeArtifact = artifact;
+}
+
+export function setProxySubstitutionReason(reason: string | undefined): void {
+  _proxySubstitutionReason = reason;
+}
+
+/**
  * Extra headers to attach when routing through the proxy so it can identify
  * the calling agent for logging and enforcement (Phase 2, design.md §11).
  *
@@ -69,6 +90,14 @@ function proxyHeaders(): Record<string, string> {
   if (_proxyIntent) headers["X-Openclaw-Linear-Intent"] = _proxyIntent;
   if (_proxyTarget) headers["X-Openclaw-Linear-Target"] = _proxyTarget;
   if (_proxyCommentSatisfiedBy) headers["X-Openclaw-Comment-Satisfied-By"] = _proxyCommentSatisfiedBy;
+  if (_proxyCodeArtifact) headers["X-Openclaw-Code-Artifact"] = _proxyCodeArtifact;
+  // Percent-encoded: the reason is agent-authored free text and routinely
+  // contains non-latin-1 characters (em-dashes, emoji). Node throws on a header
+  // value it cannot encode, which would turn a declared substitution — the
+  // sanctioned path — into a hard crash. The connector decodes it back.
+  if (_proxySubstitutionReason) {
+    headers["X-Openclaw-Substitution-Reason"] = encodeURIComponent(_proxySubstitutionReason);
+  }
   return headers;
 }
 

@@ -15,13 +15,14 @@ import {
   isMattTarget,
   logRefusal,
 } from "./matt-escalation-guard";
-import { setProxyIntent, setProxyTarget } from "./client";
+import { setProxyIntent, setProxyTarget, setProxyCodeArtifact, setProxySubstitutionReason } from "./client";
 import { getComments, getIssueHistory } from "./boards";
 import { getSelfUser } from "./auth";
-import { addComment, getIssue, updateIssue } from "./issues";
+import { addComment, getIssue, resolveUserWithHints, updateIssue } from "./issues";
 import { createDuplicateRelation } from "./relations";
 import { findStateByType } from "./states";
 import { resolveLabelIds } from "./labels";
+import { buildArtifactMarker, formatCodeArtifact, parseCodeArtifact } from "./artifact";
 import { IssueHistory } from "./types";
 
 const AGENT_REVIEW_LABEL = "gate:agent-review";
@@ -308,6 +309,12 @@ async function guardMattEscalation(
  * With reviewHandoff: also applies the gate:agent-review label atomically
  * and prefixes the comment with `[Review Handoff]` if not already present.
  * Fails before any mutation if the label is missing on the target team.
+ *
+ * AI-2479 — with codeArtifact: declares the `<branch>@<sha>` this handoff is
+ * about. The declaration is recorded in the handoff comment as an HTML marker
+ * and sent to the proxy, which refuses a handoff that silently declares an
+ * artifact other than the one the caller was handed. substitutionReason is the
+ * sanctioned, non-silent path for a legitimate swap.
  */
 export async function handoffWork(
   issueId: string,
@@ -318,8 +325,20 @@ export async function handoffWork(
     forceDuplicate?: boolean;
     forceMattEscalation?: boolean;
     reviewHandoff?: boolean;
+    codeArtifact?: string;
+    substitutionReason?: string;
   }
 ): Promise<SemanticResult> {
+  // Parse before guardMattEscalation and before any mutation: a malformed
+  // operand must fail loudly and inertly, never half-apply a handoff.
+  const artifact = options?.codeArtifact ? parseCodeArtifact(options.codeArtifact) : undefined;
+  if (options?.substitutionReason && !artifact) {
+    throw new Error(
+      "--substitution-reason declares why the artifact differs from the one you were handed, " +
+      "so it requires --code-artifact <branch>@<sha>."
+    );
+  }
+
   await guardMattEscalation(issueId, delegateName, options);
 
   let comment = options?.comment;
@@ -352,6 +371,32 @@ export async function handoffWork(
     }
   }
 
+  // AI-2479: record the declared artifact in the comment body, so the record
+  // lives in the ticket timeline rather than in connector process memory — a
+  // handoff and its review can be days apart, and neither connector store
+  // survives a restart.
+  //
+  // Appended BEFORE near-duplicate detection deliberately. Two handoffs whose
+  // text AND artifact match are still true duplicates and should still collapse
+  // (the surviving earlier comment already carries the identical marker, so the
+  // record is not lost); two handoffs declaring DIFFERENT artifacts now differ in
+  // body and both post, which is exactly the history the guard needs to read.
+  if (artifact) {
+    if (commentFile) {
+      comment = (await fs.readFile(commentFile, "utf8")).trim();
+      commentFile = undefined;
+    }
+    // Resolve the recipient so the marker records WHO owes the next disclosure.
+    // executeTransition resolves this name again; the duplicate read is worth it
+    // to keep the marker addressed, and it only runs when --code-artifact is
+    // passed, so a handoff without a declaration makes no extra call and behaves
+    // exactly as it did before. Resolving here also fails loudly on a bad name
+    // before the comment is posted, matching parseCodeArtifact above.
+    const recipient = await resolveUserWithHints(delegateName, "handoff-work");
+    const body = comment?.trim() || `Handing off. Artifact: ${formatCodeArtifact(artifact)}`;
+    comment = `${body}\n\n${buildArtifactMarker(artifact, recipient.id)}`;
+  }
+
   // AI-1494: a generic handoff on a live wf:dev-impl ticket is an OWNER change,
   // not a STATE change. The previous behavior reset the native column to "To Do"
   // and stripped the `state:*` projection label, mis-rendering the board and
@@ -371,8 +416,22 @@ export async function handoffWork(
     .map((l) => l.name.toLowerCase())
     .find((n) => n in DEV_IMPL_STATE_TARGET);
 
+  // AI-2479: deliberately NOT setProxyIntent("handoff-work").
+  //
+  // Every sibling verb sets an intent, and making this one match looks like an
+  // obvious tidy-up. It is fleet-breaking. No workflow def declares handoff-work
+  // as a transition, and an intent that no transition declares is a hard refusal
+  // on a governed ticket (workflow-gate.ts: "'X' is not a legal command in state
+  // 'Y'") — so setting it would strand every handoff on every wf:* ticket, in
+  // every state, at once. handoff-work is intentionally intent-free: it falls
+  // through to the connector's raw-mutation interception, which already applies
+  // the correct delegate-only semantics (AI-1535, AI-1835). The artifact guard is
+  // enforced there, on the delegate-change shape, for exactly this reason.
+  if (artifact) setProxyCodeArtifact(formatCodeArtifact(artifact));
+  if (options?.substitutionReason) setProxySubstitutionReason(options.substitutionReason);
+  try {
   if (activeStateLabel && !options?.reviewHandoff) {
-    return executeTransition("handoffWork", {
+    return await executeTransition("handoffWork", {
       issueId,
       comment,
       commentFile,
@@ -394,7 +453,7 @@ export async function handoffWork(
     });
   }
 
-  return executeTransition("handoffWork", {
+  return await executeTransition("handoffWork", {
     issueId,
     comment,
     commentFile,
@@ -413,6 +472,10 @@ export async function handoffWork(
     // prevent column/label divergence (state=To Do but label=state:implementation).
     removeLabelsIfPresent: ["state:intake", "state:implementation", "state:code-review", "state:merge", "state:deploy"],
   });
+  } finally {
+    setProxyCodeArtifact(undefined);
+    setProxySubstitutionReason(undefined);
+  }
 }
 
 /**

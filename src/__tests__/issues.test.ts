@@ -489,6 +489,30 @@ describe("findUserByName", () => {
 describe("rewriteIssueLinks", () => {
   const KEY = "fancymatt";
 
+  // AI-2479: HTML comments carry machine-readable markers (e.g. the artifact
+  // disclosure record). Link-rewriting inside one silently corrupts the payload:
+  // a branch like "feature/AI-2476-gate" becomes
+  // "feature/[AI-2476](https://...)-gate", so the recorded branch no longer
+  // matches the real one and the guard mis-fires. HTML comments are invisible in
+  // rendered Markdown, so a link in there is never useful to a human either.
+  it("does not rewrite identifiers inside an HTML comment", () => {
+    const marker = '<!-- artifact-disclosure: {"branch":"feature/AI-2476-gate","sha":"b777e17"} -->';
+    expect(rewriteIssueLinks(marker, KEY)).toBe(marker);
+  });
+
+  it("preserves an HTML-comment marker while still rewriting prose around it", () => {
+    const marker = '<!-- artifact-disclosure: {"branch":"feature/AI-2476-gate"} -->';
+    const result = rewriteIssueLinks(`Handing AI-2479 to you.\n${marker}`, KEY);
+    expect(result).toBe(
+      `Handing [AI-2479](https://linear.app/fancymatt/issue/AI-2479) to you.\n${marker}`
+    );
+  });
+
+  it("does not rewrite inside a multi-line HTML comment", () => {
+    const marker = "<!--\n  artifact-disclosure: AI-2476\n-->";
+    expect(rewriteIssueLinks(marker, KEY)).toBe(marker);
+  });
+
   it("returns text unchanged when no identifiers present", () => {
     const text = "This is a plain comment with no refs.";
     expect(rewriteIssueLinks(text, KEY)).toBe(text);
