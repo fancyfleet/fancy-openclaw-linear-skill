@@ -20,7 +20,7 @@ import { listLabels, addLabels, removeLabels } from "./labels";
 import { searchIssues } from "./search";
 import { linearTest } from "./test";
 import { runMetrics } from "./metrics";
-import { linearGraphQL, LinearApiError } from "./client";
+import { linearGraphQL, LinearApiError, setProxyCommandId } from "./client";
 import { normalizeCliDescription, relativeTime, wrapText } from "./utils";
 import { ObserveResult } from "./semantic";
 import { setDebugMode, isDebugMode } from "./debug";
@@ -243,6 +243,12 @@ function printResult(result: unknown, human = false): void {
 }
 
 async function runCommand(handler: () => Promise<unknown>, human = false): Promise<void> {
+  // AI-2530: mint a per-invocation command nonce so the connector can key its
+  // auth-snapshot on agentId:issueId:intent:commandId, separating a fresh
+  // command from the same-command chunked comment follow-ups (AI-2472).
+  // crypto.randomUUID() is available in Node >= 19 and needs no polyfill.
+  const commandId = crypto.randomUUID();
+  setProxyCommandId(commandId);
   try {
     const result = await handler();
     printResult(result, human);
@@ -253,6 +259,8 @@ async function runCommand(handler: () => Promise<unknown>, human = false): Promi
       process.stderr.write(`[DEBUG] Raw GraphQL error details: ${JSON.stringify(error.details, null, 2)}\n`);
     }
     process.exitCode = 1;
+  } finally {
+    setProxyCommandId(undefined);
   }
 }
 
