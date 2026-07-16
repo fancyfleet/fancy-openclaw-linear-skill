@@ -20,6 +20,7 @@ import { getComments, getIssueHistory } from "./boards";
 import { getSelfUser } from "./auth";
 import { addComment, getIssue, updateIssue } from "./issues";
 import { createDuplicateRelation } from "./relations";
+import { findStateByType } from "./states";
 import { resolveLabelIds } from "./labels";
 import { IssueHistory } from "./types";
 
@@ -803,9 +804,13 @@ export async function parkWork(
 export interface DuplicateResult extends SemanticResult {
   /** Identifier of the canonical ticket this one was consolidated into. */
   canonicalId: string;
-  /** True when the native Linear `duplicate` relation was created. */
+  /**
+   * True when the native Linear `duplicate` relation exists. Always true on a
+   * successful return: the relation is now a precondition of the state move
+   * (AI-2500), so a failed relation write throws instead of returning false.
+   */
   relationCreated: boolean;
-  /** Set when the state landed but the relation write failed (state is authoritative). */
+  /** Retained for output-shape compatibility; always null (a relation failure throws). */
   relationError: string | null;
 }
 
@@ -851,6 +856,25 @@ export async function duplicate(
     );
   }
 
+  // Resolve the duplicate state BEFORE writing anything. The relation has to be
+  // created first (below), but on a team with no duplicate-type column the move
+  // can never complete — and a relation written first would then be stray litter
+  // on a board that cannot finish the consolidation. executeTransition resolves
+  // this again internally; the second call is served from the states cache.
+  const teamId = target.team?.id;
+  if (!teamId) {
+    throw new Error(`Issue ${target.identifier} has no team — cannot resolve a duplicate state.`);
+  }
+  await findStateByType(teamId, "duplicate");
+
+  // Linear refuses a move into a duplicate-type state unless the relation already
+  // exists ("Issues can only be moved to a duplicate state when a duplicate issue
+  // relation exists"), so the link is a precondition of the transition, not a
+  // follow-up to it. Ordering these the other way round is AI-2500: the verb threw
+  // on every invocation from the day it shipped, because the mocked suite could not
+  // see a constraint that only the live API enforces.
+  await createDuplicateRelation(target.id, canonical.id);
+
   setProxyIntent("duplicate");
   let result: TransitionResult;
   try {
@@ -868,28 +892,23 @@ export async function duplicate(
       clearDelegate: true,
       clearAssignee: true,
     });
+  } catch (err) {
+    // The relation landed and the state did not. Say so rather than letting a bare
+    // transition error imply nothing happened: the link is real and visible in
+    // `linear relations`. Retrying the verb is safe — issueRelationCreate is
+    // idempotent for an identical duplicate relation (verified against the live
+    // API), so the retry re-uses the existing link and re-attempts only the move.
+    process.stderr.write(
+      `Warning: the duplicate relation from ${target.identifier} to ${canonical.identifier} was ` +
+        `created, but the move into the duplicate state failed. The relation stands and is visible ` +
+        `via 'linear relations ${target.identifier}'. Re-running this command is safe.\n`
+    );
+    throw err;
   } finally {
     setProxyIntent(undefined);
   }
 
-  // The state is the load-bearing outcome and it has already landed; a failed
-  // relation write must not present the consolidation as failed and invite a
-  // retry. Report it loudly instead and let the caller add the link by hand.
-  let relationCreated = false;
-  let relationError: string | null = null;
-  try {
-    await createDuplicateRelation(target.id, canonical.id);
-    relationCreated = true;
-  } catch (err) {
-    relationError = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      `Warning: ${target.identifier} was moved to ${result.state} but the duplicate relation ` +
-        `to ${canonical.identifier} could not be created: ${relationError}\n` +
-        `The state change stands. Add the link in Linear manually.\n`
-    );
-  }
-
-  return { ...result, canonicalId: canonical.identifier, relationCreated, relationError };
+  return { ...result, canonicalId: canonical.identifier, relationCreated: true, relationError: null };
 }
 
 /**
