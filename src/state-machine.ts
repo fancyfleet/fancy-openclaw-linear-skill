@@ -35,6 +35,25 @@ const COMMENT_RATE_LIMIT_MAX = parseInt(process.env.LINEAR_COMMENT_RATE_LIMIT_MA
 const COMMENT_RATE_LIMIT_WINDOW_SECONDS = parseInt(process.env.LINEAR_COMMENT_RATE_LIMIT_WINDOW_SECONDS ?? "300", 10);
 
 /**
+ * Post-transition verification re-fetch policy (AI-2110).
+ *
+ * The proxy applies a governed transition atomically, but the CLI's post-trigger
+ * re-fetch reads Linear's eventually-consistent GraphQL API: a read issued
+ * immediately after the mutation can land on a replica that has not yet caught up
+ * and return the pre-transition label set. That made the pre===post "did NOT apply"
+ * guard fire on transitions that had, in fact, applied (AI-2110). Before failing
+ * loudly we re-poll a few times: a genuine proxy fail-open stays unchanged across
+ * every attempt, while a lagging replica converges within a few hundred ms.
+ * Both knobs are env-tunable (tests set the delay to 0 to stay fast).
+ */
+const POST_TRANSITION_VERIFY_RETRIES = parseInt(process.env.LINEAR_POST_TRANSITION_VERIFY_RETRIES ?? "3", 10);
+const POST_TRANSITION_VERIFY_DELAY_MS = parseInt(process.env.LINEAR_POST_TRANSITION_VERIFY_DELAY_MS ?? "350", 10);
+
+function sleep(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}
+
+/**
  * Strip HTML/Prosemirror markup for body comparison.
  */
 function stripMarkup(text: string): string {
@@ -830,7 +849,26 @@ export async function executeTransition(
         .sort()
         .join(",");
     const preStateLabels = stateLabelSet(issue.labels);
-    const postStateLabels = stateLabelSet(updatedIssue.labels);
+    let postStateLabels = stateLabelSet(updatedIssue.labels);
+
+    // AI-2110: the post-trigger re-fetch reads Linear's eventually-consistent API,
+    // so a successful transition can be invisible on the first read (replica lag)
+    // and look identical to the pre-state. Re-poll before declaring failure: a real
+    // fail-open never changes, a lagging replica converges. Each fresh read replaces
+    // `updatedIssue` so the delegate check and result below also see authoritative
+    // state, not the stale snapshot that raced the trigger.
+    if (preStateLabels && preStateLabels === postStateLabels) {
+      for (
+        let attempt = 0;
+        attempt < POST_TRANSITION_VERIFY_RETRIES && preStateLabels === postStateLabels;
+        attempt++
+      ) {
+        await sleep(POST_TRANSITION_VERIFY_DELAY_MS);
+        updatedIssue = await getIssue(args.issueId);
+        postStateLabels = stateLabelSet(updatedIssue.labels);
+      }
+    }
+
     if (preStateLabels && preStateLabels === postStateLabels) {
       const commentNote = commentPosted
         ? `The comment WAS posted (${commentId}).`

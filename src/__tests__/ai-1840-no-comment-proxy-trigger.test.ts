@@ -98,6 +98,7 @@ const doneIssue: any = {
 beforeEach(() => {
   jest.clearAllMocks();
   process.env.LINEAR_PROXY_URL = "http://localhost:3100/proxy";
+  process.env.LINEAR_POST_TRANSITION_VERIFY_DELAY_MS = "0"; // AI-2110: no real sleep in tests
   mockGetIssue.mockResolvedValue(preIssue);
   mockUpdateIssue.mockResolvedValue(doneIssue);
   mockFindSemanticState.mockResolvedValue({
