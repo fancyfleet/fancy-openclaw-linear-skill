@@ -72,7 +72,7 @@ function normalizeIssue(issue: RawIssue): Issue {
     labels: issue.labels?.nodes ?? [],
     relations: issue.relations?.nodes ?? [],
     inverseRelations: issue.inverseRelations?.nodes ?? [],
-    comments: issue.comments?.nodes ?? [],
+    comments: [...(issue.comments?.nodes ?? [])].reverse(),
     children: issue.children?.nodes ?? []
   };
 }
