@@ -136,7 +136,7 @@ export const ISSUE_FIELDS = `
       ${RELATION_NODE_FIELDS}
     }
   }
-  comments(last: 50, orderBy: createdAt) {
+  comments(first: 50, orderBy: createdAt) {
     nodes {
       ${COMMENT_FIELDS}
     }
