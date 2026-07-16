@@ -41,6 +41,11 @@ interface UpdateIssueMutationResponse {
   };
 }
 
+export interface MoveIssueTeamResult extends Issue {
+  stateChanged?: boolean;
+  sourceState?: { name: string };
+}
+
 interface CommentCreateResponse {
   commentCreate: {
     success: boolean;
@@ -209,6 +214,53 @@ export async function updateIssue(id: string, input: UpdateIssueInput): Promise<
   }
 
   return getIssue(data.issueUpdate.issue.id);
+}
+
+export async function moveIssueTeam(
+  issueId: string,
+  teamId: string,
+  opts?: { state?: string }
+): Promise<MoveIssueTeamResult> {
+  const sourceIssue = await getIssue(issueId);
+  const sourceStateName = sourceIssue.state?.name;
+  const input: UpdateIssueInput = { teamId };
+
+  if (opts?.state) {
+    const targetState = await findSemanticState(teamId, opts.state);
+    input.stateId = targetState.id;
+  }
+
+  const data = await linearGraphQL<UpdateIssueMutationResponse>(
+    `
+      mutation IssueUpdate($id: String!, $input: IssueUpdateInput!) {
+        issueUpdate(id: $id, input: $input) {
+          success
+          issue {
+            id
+          }
+        }
+      }
+    `,
+    {
+      id: issueId,
+      input
+    }
+  );
+
+  if (!data.issueUpdate.success || !data.issueUpdate.issue) {
+    throw new Error(`Linear issueUpdate mutation failed for issue ${issueId}.`);
+  }
+
+  const movedIssue: MoveIssueTeamResult = await getIssue(data.issueUpdate.issue.id);
+  const targetStateName = movedIssue.state?.name;
+
+  if (sourceStateName && targetStateName && sourceStateName !== targetStateName) {
+    process.stderr.write(`Warning: state remapped from "${sourceStateName}" to "${targetStateName}" in target team.\n`);
+    movedIssue.stateChanged = true;
+    movedIssue.sourceState = { name: sourceStateName };
+  }
+
+  return movedIssue;
 }
 
 // ---------------------------------------------------------------------------
