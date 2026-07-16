@@ -45,36 +45,51 @@ function runGate(tag: string | undefined, cwd: string): RunResult {
 }
 
 describe("AI-2454 — release gate (scripts/check-release-tag.js)", () => {
-  // A checkout parked exactly on origin/main, which is the state a real release
-  // tag is cut from. The gate is invoked by absolute path so it reads the repo's
-  // package.json while running its git checks against this worktree.
-  let mainWorktree: string;
+  // A scratch repo with a real origin/main, built from scratch rather than derived
+  // from this checkout: CI clones shallow and has no origin/main ref at all, so a
+  // fixture that leans on the ambient repo passes locally and dies in CI. The gate
+  // is invoked by absolute path, so it reads the real package.json for the version
+  // comparison while running its git checks against this scratch tree.
+  let scratch: string;
+  let clone: string;
+
+  const git = (cmd: string, cwd: string) =>
+    execSync(`git -c user.email=test@example.com -c user.name=test ${cmd}`, { cwd, stdio: "pipe" });
 
   beforeAll(() => {
-    mainWorktree = fs.mkdtempSync(path.join(os.tmpdir(), "ai2454-main-"));
-    execSync(`git worktree add --detach ${mainWorktree} origin/main`, {
-      cwd: REPO_ROOT,
-      stdio: "pipe",
-    });
+    scratch = fs.mkdtempSync(path.join(os.tmpdir(), "ai2454-origin-"));
+    git("init -q --initial-branch=main .", scratch);
+    fs.writeFileSync(path.join(scratch, "file.txt"), "released\n");
+    git("add file.txt", scratch);
+    git("commit -q -m 'on main'", scratch);
+
+    // Cloning is what produces a genuine origin/main remote-tracking ref.
+    clone = fs.mkdtempSync(path.join(os.tmpdir(), "ai2454-clone-"));
+    execSync(`git clone -q ${scratch} ${clone}`, { stdio: "pipe" });
   });
 
   afterAll(() => {
-    try {
-      execSync(`git worktree remove --force ${mainWorktree}`, { cwd: REPO_ROOT, stdio: "pipe" });
-    } catch {
-      /* best effort — a leaked temp worktree must not fail the suite */
+    for (const dir of [scratch, clone]) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* best effort — a leaked temp dir must not fail the suite */
+      }
     }
   });
 
+  /** The clone sits exactly on origin/main — the state a real release is cut from. */
+  const mainWorktree = () => clone;
+
   it("passes when the tag matches package.json and names a commit on main", () => {
-    const res = runGate(`v${pkg.version}`, mainWorktree);
+    const res = runGate(`v${pkg.version}`, mainWorktree());
 
     expect(res.code).toBe(0);
     expect(res.stdout).toContain("Release gate OK");
   });
 
   it("refuses a tag that disagrees with package.json — the forgotten-bump case", () => {
-    const res = runGate("v9.9.9", mainWorktree);
+    const res = runGate("v9.9.9", mainWorktree());
 
     expect(res.code).toBe(1);
     expect(res.stderr).toContain("disagrees with package.json");
@@ -84,35 +99,44 @@ describe("AI-2454 — release gate (scripts/check-release-tag.js)", () => {
   });
 
   it("refuses a correctly-named tag on a commit that is not on main", () => {
-    // Build the off-main commit explicitly rather than leaning on whatever branch
-    // the suite happens to run from: during a real release the checkout *is* on
-    // main, so an ambient-state version of this test would fail the release job.
+    // Commit into the clone without pushing: that commit is genuinely not an
+    // ancestor of origin/main, which is the un-merged tag the gate must catch.
     const stray = fs.mkdtempSync(path.join(os.tmpdir(), "ai2454-stray-"));
-    execSync(`git worktree add --detach ${stray} origin/main`, { cwd: REPO_ROOT, stdio: "pipe" });
+    execSync(`git clone -q ${scratch} ${stray}`, { stdio: "pipe" });
     try {
       fs.writeFileSync(path.join(stray, "unmerged.txt"), "never merged to main\n");
-      // Identity is passed inline: CI runners have no global git identity.
-      execSync(
-        "git add unmerged.txt && " +
-          "git -c user.email=test@example.com -c user.name=test commit -m 'unmerged work'",
-        { cwd: stray, stdio: "pipe" }
-      );
+      git("add unmerged.txt", stray);
+      git("commit -q -m 'unmerged work'", stray);
 
       const res = runGate(`v${pkg.version}`, stray);
 
       expect(res.code).toBe(1);
       expect(res.stderr).toContain("not an ancestor of origin/main");
     } finally {
-      try {
-        execSync(`git worktree remove --force ${stray}`, { cwd: REPO_ROOT, stdio: "pipe" });
-      } catch {
-        /* best effort */
-      }
+      fs.rmSync(stray, { recursive: true, force: true });
+    }
+  });
+
+  it("reports a missing origin/main as a checkout problem, not as an off-main tag", () => {
+    // CI clones shallow with no origin/main. merge-base fails identically for a
+    // missing ref and for un-merged code, so the gate must tell them apart or a
+    // checkout problem reads as "someone tagged off main".
+    const noOrigin = fs.mkdtempSync(path.join(os.tmpdir(), "ai2454-noorigin-"));
+    git("init -q --initial-branch=main .", noOrigin);
+    git("commit -q --allow-empty -m 'no remote'", noOrigin);
+    try {
+      const res = runGate(`v${pkg.version}`, noOrigin);
+
+      expect(res.code).toBe(1);
+      expect(res.stderr).toContain("cannot resolve origin/main");
+      expect(res.stderr).not.toContain("not an ancestor");
+    } finally {
+      fs.rmSync(noOrigin, { recursive: true, force: true });
     }
   });
 
   it("refuses to run with no tag at all rather than guessing one", () => {
-    const res = runGate(undefined, mainWorktree);
+    const res = runGate(undefined, mainWorktree());
 
     expect(res.code).toBe(1);
     expect(res.stderr).toContain("no tag given");
