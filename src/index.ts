@@ -25,6 +25,7 @@ import { normalizeCliDescription, relativeTime, wrapText } from "./utils";
 import { ObserveResult } from "./semantic";
 import { setDebugMode, isDebugMode } from "./debug";
 import { CreateIssueInput, UpdateIssueInput } from "./types";
+import pkg from "../package.json";
 
 interface NotificationsResponse {
   notifications: {
@@ -310,7 +311,7 @@ function levenshtein(a: string, b: string): number {
 
 async function main(): Promise<void> {
   const program = new Command();
-  program.name("linear").description("Linear CLI for OpenClaw").option("--human", "Use readable output").option("--debug", "Dump raw GraphQL errors to stderr");
+  program.name("linear").description("Linear CLI for OpenClaw").version(pkg.version, "-v, --version", "Print the installed CLI version").option("--human", "Use readable output").option("--debug", "Dump raw GraphQL errors to stderr");
   setDebugMode(!!program.opts<{ debug?: boolean }>().debug);
 
   // Unknown command — suggest similar command names

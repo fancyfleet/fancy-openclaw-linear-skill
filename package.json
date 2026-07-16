@@ -21,7 +21,8 @@
     "prebuild": "node scripts/guard-main-branch.js",
     "build": "tsc",
     "test": "jest",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "release:tag": "node scripts/release-tag.js"
   },
   "dependencies": {
     "axios": "^1.8.4",

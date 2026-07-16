@@ -1,0 +1,64 @@
+name: Release
+
+# Publishing is triggered by pushing a `v*` tag to a merged main commit — the same
+# tag convention the connector repo uses for its image publish. See RELEASING.md.
+#
+# GITHUB_TOKEN with `contents: write` is the only credential involved. The repo is
+# public, so the published tarball is fetchable without any credential at all.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          # The release gate asks whether this tag is an ancestor of origin/main,
+          # which a shallow checkout cannot answer.
+          fetch-depth: 0
+
+      # A tag checkout does not reliably leave an origin/main ref behind, and the
+      # gate needs one to answer "is this tag on main?". Fetch it explicitly rather
+      # than depend on what checkout happens to leave in place.
+      - name: Fetch main for the ancestry check
+        run: git fetch origin main:refs/remotes/origin/main
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify tag matches package.json and is on main
+        run: node scripts/check-release-tag.js
+
+      - name: Build
+        run: npm run build
+
+      # A published artifact is one that passed its own tests, not one that passed
+      # them on a green PR days earlier against a different tree.
+      - name: Run tests
+        run: npm test -- --runInBand
+
+      - name: Pack tarball
+        id: pack
+        run: echo "tarball=$(npm pack | tail -1)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            "${{ steps.pack.outputs.tarball }}" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

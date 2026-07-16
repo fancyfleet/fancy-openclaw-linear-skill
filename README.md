@@ -46,28 +46,49 @@ Linear → fancy-openclaw-linear-connector → OpenClaw agent
 
 ## Install
 
-**Standard install (single-host, all agents):** Clone once, build, and install globally from the tarball. This installs a copy of the built dist — not a symlink — so it survives nvm switches and source directory changes.
+**Standard install — install a published release.** No credential is needed; this repo
+is public.
 
 ```bash
-# 1. Clone once to a shared location
-git clone git@github.com:fancymatt/fancy-openclaw-linear-skill.git ~/Code/fancy-openclaw-linear-skill
-cd ~/Code/fancy-openclaw-linear-skill
-npm install
+VERSION=0.3.9   # latest: gh release view --repo fancyfleet/fancy-openclaw-linear-skill
+npm install -g "https://github.com/fancyfleet/fancy-openclaw-linear-skill/releases/download/v${VERSION}/fancy-openclaw-linear-skill-cli-${VERSION}.tgz"
 
-# 2. Build and install globally (prepack runs build automatically)
-npm install -g .
-
-# 3. Verify
+# Verify
+linear --version    # must print $VERSION
 linear auth check
 ```
 
-**To update after pulling changes:**
+This installs a copy of the built dist — not a symlink — so it survives nvm switches
+and source directory changes.
+
+**To update:** re-run the command above with the newer `$VERSION`, then confirm with
+`linear --version`.
+
+**Which version am I on, and is it current?**
 
 ```bash
-cd ~/Code/fancy-openclaw-linear-skill
-git pull
-npm install -g .
+linear --version    # installed here
+curl -s https://api.github.com/repos/fancyfleet/fancy-openclaw-linear-skill/releases/latest | grep '"tag_name"'
 ```
+
+If those disagree, this host is behind — a verb that is missing here may exist
+upstream. See [RELEASING.md](RELEASING.md).
+
+**Installing from source** (development, or a commit that has no release yet):
+
+```bash
+git clone https://github.com/fancyfleet/fancy-openclaw-linear-skill.git ~/Code/fancy-openclaw-linear-skill
+cd ~/Code/fancy-openclaw-linear-skill
+npm install
+npm install -g .    # prepack runs build automatically
+```
+
+A source install reports the version in `package.json`, which is **not** evidence that
+any release contains it. Prefer a release install on anything you did not build
+yourself.
+
+**Cutting a release:** see [RELEASING.md](RELEASING.md). Merging a PR publishes nothing
+on its own.
 
 **Skill symlink** (for agent workspace SKILL.md discovery, separate from the binary):
 
@@ -243,6 +264,7 @@ These commands still work when invoked directly but are hidden from `linear --he
 
 | Command | Description |
 |---|---|
+| `linear --version` | Print the CLI version installed on this host. Compare against the latest release to tell "this verb does not exist yet here" apart from a gate refusal. |
 | `linear auth check` | Verify authentication |
 | `linear auth doctor` | Diagnose Linear auth and CLI setup |
 | `linear test` | Run full round-trip integration test |
@@ -250,6 +272,7 @@ These commands still work when invoked directly but are hidden from `linear --he
 ## Docs
 
 - `SKILL.md` — agent-facing skill entrypoint and quick reference
+- `RELEASING.md` — how a merged commit becomes an installed CLI: publish, verify, roll back
 - `references/auth.md` — auth setup, env var names, discovery rules, onboarding checklist
 - `references/permissions.md` — agent permissions guide, credential types, scope requirements
 - `references/hygiene.md` — workflow hygiene rules

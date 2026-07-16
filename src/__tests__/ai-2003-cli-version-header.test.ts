@@ -26,6 +26,19 @@ jest.mock("../auth", () => ({
 
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
+/** The release that introduced the header — the floor pkg.version must never fall below. */
+const HEADER_EMITTING_RELEASE = "0.3.8";
+
+/** Numeric semver compare on the release triple; returns <0, 0, or >0. */
+function compareSemver(a: string, b: string): number {
+  const triple = (v: string) => v.split("-")[0].split(".").map(Number);
+  const [x, y] = [triple(a), triple(b)];
+  for (let i = 0; i < 3; i++) {
+    if (x[i] !== y[i]) return x[i] - y[i];
+  }
+  return 0;
+}
+
 function lastPostHeaders(): Record<string, string> {
   const call = mockedAxios.post.mock.calls[mockedAxios.post.mock.calls.length - 1];
   return (call[2] as { headers: Record<string, string> }).headers;
@@ -52,8 +65,12 @@ describe("AI-2003 — CLI version header on proxied requests", () => {
 
     const headers = lastPostHeaders();
     expect(headers["X-Openclaw-Linear-Cli-Version"]).toBe(pkg.version);
-    // sanity: the version we ship the header with is the bumped 0.3.9 release
-    expect(pkg.version).toBe("0.3.9");
+    // The version must be a real semver at or above the release that introduced the
+    // header, which is the shape the connector's floor compares against. Asserting an
+    // exact literal here instead made every bump fail CI until the test was hand-edited
+    // to match (f8046ee did exactly that), so the pin is a floor, not an equality.
+    expect(pkg.version).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
+    expect(compareSemver(pkg.version, HEADER_EMITTING_RELEASE)).toBeGreaterThanOrEqual(0);
     expect(headers["X-Openclaw-Agent"]).toBe("igor");
   });
 
