@@ -7,7 +7,7 @@ import { checkAuth, linearDoctor } from "./auth";
 import { getMyBlocked } from "./blocked";
 import { getBoard, getRecentlyDone, getReviewQueue, getStalled } from "./boards";
 import { considerWork, refuseWork, beginWork, handoffWork, complete, duplicate, cancel, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, briefReady, filed, continueWorkflow, requestRevision, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, stewardTakeover } from "./semantic";
-import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, updateIssue, verifyComment } from "./issues";
+import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, updateIssue, readLastComment, readState, verifyComment } from "./issues";
 import { attachIssueToMilestone, attachIssueToProject, attachIssueToProjectById, createMilestone, createProject, editProject, findProjectByName, getProjectDetail, getProjectIssues, listMilestones, listProjects } from "./projects";
 import { createBlockingRelation, listRelations, removeBlockingRelation, removeParentIssue, setParentIssue } from "./relations";
 import { findSemanticState, findStateByName, getWorkflowStates } from "./states";
@@ -819,6 +819,14 @@ async function main(): Promise<void> {
     if (!result.exists) {
       process.exitCode = 1;
     }
+  });
+
+  program.command("read-state").usage("<id> [options]").argument("<id>").description("Read current issue state using strongly-consistent node lookup").action(async (id: string) => {
+    await runCommand(async () => readState(id), program.opts<{ human?: boolean }>().human);
+  });
+
+  program.command("read-last-comment").usage("<id> [options]").argument("<id>").description("Read most recent issue comment using strongly-consistent node lookup").action(async (id: string) => {
+    await runCommand(async () => readLastComment(id), program.opts<{ human?: boolean }>().human);
   });
 
   // --- Label commands ---

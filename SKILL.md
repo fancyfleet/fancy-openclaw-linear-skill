@@ -192,7 +192,7 @@ the current bottleneck.
 
 ### Comment Verification
 
-**Never read-after-write to verify a comment.** The mutation result is the strongly-consistent source of truth. Trust the `commentId` and `commentUrl` printed on success. If you genuinely need to confirm propagation (rare), use `linear verify-comment <commentId>` — it uses the strongly-consistent node query, not the eventually-consistent connection feed. The `linear comments` / `observe-issue` connection feed can lag by seconds to minutes.
+**Never read-after-write to verify a comment.** The mutation result is the strongly-consistent source of truth. Trust the `commentId` and `commentUrl` printed on success. If you genuinely need to confirm propagation (rare), use `linear verify-comment <commentId>` — it uses the strongly-consistent node query, not the eventually-consistent connection feed. Use `linear read-state <ID>` when verifying a state mutation because it uses a strongly-consistent node query. Use `linear read-last-comment <ID>` when verifying the latest issue comment because it uses a strongly-consistent node query. The `linear comments` / `observe-issue` connection feed can lag by seconds to minutes.
 
 ### Deprecated Commands (Human Use Only)
 
