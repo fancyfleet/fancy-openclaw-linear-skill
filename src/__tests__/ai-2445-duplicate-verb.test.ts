@@ -18,6 +18,11 @@
  * relation mutation takes UUIDs while the refusal messages quote identifiers; a
  * single shared literal would collapse both key spaces and pass even if the verb
  * mixed them up.
+ *
+ * These tests all passed on a verb that threw on every real invocation (AI-2500):
+ * they mock the API that enforces relation-before-state, so the constraint the verb
+ * violated was invisible to them. Ordering is pinned in ai-2500-duplicate-ordering
+ * .test.ts. Treat a green run here as evidence about this process only.
  */
 
 import { getIssue, updateIssue, addComment } from "../issues";
@@ -221,19 +226,18 @@ describe("structural duplicate relation", () => {
     expect(result.relationError).toBeNull();
   });
 
-  it("keeps the state change when only the relation write fails", async () => {
-    // The state is the load-bearing outcome. Throwing here would present a landed
-    // consolidation as failed and invite a retry that re-runs the whole verb.
+  it("aborts before the state change when the relation write fails", async () => {
+    // Inverted by AI-2500. This test used to assert the opposite — that the state
+    // change stands and the verb returns relationCreated: false — which encoded the
+    // ordering bug as the contract: Linear will not accept the move into a
+    // duplicate-type state at all unless the relation already exists, so a landed
+    // state with a failed relation is not a state the API can produce. The relation
+    // is a precondition now, and a failed precondition must leave the board clean.
     mockLinearGraphQL.mockRejectedValue(new Error("relation API down"));
-    const stderr = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
 
-    const result = await duplicate("AI-2223", "AI-2438");
+    await expect(duplicate("AI-2223", "AI-2438")).rejects.toThrow(/relation API down/);
 
-    expect(result.state).toBe("Duplicate");
-    expect(result.relationCreated).toBe(false);
-    expect(result.relationError).toMatch(/relation API down/);
-    expect(stderr).toHaveBeenCalledWith(expect.stringContaining("could not be created"));
-    stderr.mockRestore();
+    expect(mockUpdateIssue).not.toHaveBeenCalled();
   });
 });
 
