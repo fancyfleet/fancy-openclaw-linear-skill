@@ -18,7 +18,7 @@ import {
 import { setProxyIntent, setProxyTarget, setProxyCodeArtifact, setProxySubstitutionReason } from "./client";
 import { getComments, getIssueHistory } from "./boards";
 import { getSelfUser } from "./auth";
-import { addComment, getIssue, updateIssue } from "./issues";
+import { addComment, getIssue, resolveUserWithHints, updateIssue } from "./issues";
 import { createDuplicateRelation } from "./relations";
 import { findStateByType } from "./states";
 import { resolveLabelIds } from "./labels";
@@ -386,8 +386,15 @@ export async function handoffWork(
       comment = (await fs.readFile(commentFile, "utf8")).trim();
       commentFile = undefined;
     }
+    // Resolve the recipient so the marker records WHO owes the next disclosure.
+    // executeTransition resolves this name again; the duplicate read is worth it
+    // to keep the marker addressed, and it only runs when --code-artifact is
+    // passed, so a handoff without a declaration makes no extra call and behaves
+    // exactly as it did before. Resolving here also fails loudly on a bad name
+    // before the comment is posted, matching parseCodeArtifact above.
+    const recipient = await resolveUserWithHints(delegateName, "handoff-work");
     const body = comment?.trim() || `Handing off. Artifact: ${formatCodeArtifact(artifact)}`;
-    comment = `${body}\n\n${buildArtifactMarker(artifact)}`;
+    comment = `${body}\n\n${buildArtifactMarker(artifact, recipient.id)}`;
   }
 
   // AI-1494: a generic handoff on a live wf:dev-impl ticket is an OWNER change,

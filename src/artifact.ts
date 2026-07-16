@@ -7,11 +7,26 @@
  * connector, and — unlike either of the connector's in-process stores — able to
  * survive a restart and the days that can separate a handoff from its review.
  *
- * The marker deliberately records ONLY the artifact, never the declaring agent.
- * Agent identity is resolved connector-side from the OAuth token, which the
+ * The marker records the artifact and the RECIPIENT — never the declaring agent.
+ * Author identity is resolved connector-side from the OAuth token, which the
  * caller cannot forge; a self-reported author in the marker would be an honour
  * system with extra steps — the same defect that moved this ticket off the
  * git-author check in the first place.
+ *
+ * `to` is the obligation's address, and it is what makes the guard targetable.
+ * A declaration means "I hand YOU this code"; only that recipient owes a
+ * disclosure when they hand the ticket onward. Without `to`, the connector can
+ * only key on "a declaration exists somewhere on this ticket", which fires on
+ * unrelated third parties who were handed nothing and reviewed nothing (Ai's
+ * AI-2479 refusal: an unrelated re-route was blocked, and its only escape was to
+ * name an artifact the caller never reviewed — teaching exactly the reflex this
+ * ticket exists to punish).
+ *
+ * `to` is written by the declaring agent, so a wrong value disarms the guard on
+ * that handoff. That is NOT a new hole: the declaration is opt-in, so an agent
+ * who wants no guard already just omits --code-artifact. It cannot be used to
+ * launder a substitution either — the connector ignores markers authored by the
+ * caller, so you cannot re-address an obligation to yourself to clear it.
  *
  * Naming: `--code-artifact` is deliberately distinct from the pre-existing
  * `--artifact-ref` / `X-Openclaw-Artifact-Ref` surface (AI-1472), which binds a
@@ -23,6 +38,15 @@
 export interface CodeArtifact {
   branch: string;
   sha: string;
+}
+
+/**
+ * A recorded declaration read back off the ticket: the artifact, plus the Linear
+ * user id of the agent it was handed to. `to` is the party that owes a
+ * disclosure at their next handoff.
+ */
+export interface ArtifactRecord extends CodeArtifact {
+  to: string;
 }
 
 const MARKER_PREFIX = "<!-- artifact-disclosure: ";
@@ -77,8 +101,8 @@ export function formatCodeArtifact(a: CodeArtifact): string {
  * Callers must append this to the body only AFTER near-duplicate detection has
  * run, so a marker never makes two otherwise-identical comments look distinct.
  */
-export function buildArtifactMarker(a: CodeArtifact): string {
-  return `${MARKER_PREFIX}${JSON.stringify({ branch: a.branch, sha: a.sha })}${MARKER_SUFFIX}`;
+export function buildArtifactMarker(a: CodeArtifact, to: string): string {
+  return `${MARKER_PREFIX}${JSON.stringify({ branch: a.branch, sha: a.sha, to })}${MARKER_SUFFIX}`;
 }
 
 /**
@@ -87,17 +111,30 @@ export function buildArtifactMarker(a: CodeArtifact): string {
  * A malformed marker is skipped rather than thrown on: this parses untrusted
  * historical comment bodies, and one bad marker must not make a ticket
  * permanently ungateable.
+ *
+ * The sha is validated with the SAME `SHA_RE` the write path enforces. Reading
+ * laxer than you write is how a comparison quietly stops comparing: comment
+ * bodies are agent-writable, `shasMatch` prefix-compares on the shorter operand,
+ * and so a recorded sha of `"9"` would have matched EVERY declared sha starting
+ * with 9 (Ai's AI-2479 refusal). A record whose sha cannot be a sha is not a
+ * weaker record — it is not a record, and is dropped.
+ *
+ * A marker without a `to` is likewise dropped: it names an obligation with no
+ * one to owe it, and firing on it is the unaddressed-guard bug. No such marker
+ * can exist in the wild — nothing has shipped — so this is strictness with no
+ * migration to pay for.
  */
-export function parseArtifactMarkers(body: string): CodeArtifact[] {
-  const out: CodeArtifact[] = [];
+export function parseArtifactMarkers(body: string): ArtifactRecord[] {
+  const out: ArtifactRecord[] = [];
   MARKER_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = MARKER_RE.exec(body)) !== null) {
     try {
-      const parsed = JSON.parse(m[1]) as Partial<CodeArtifact>;
-      if (typeof parsed.branch === "string" && typeof parsed.sha === "string" && parsed.branch && parsed.sha) {
-        out.push({ branch: parsed.branch, sha: parsed.sha.toLowerCase() });
-      }
+      const parsed = JSON.parse(m[1]) as Partial<ArtifactRecord>;
+      if (typeof parsed.branch !== "string" || !parsed.branch) continue;
+      if (typeof parsed.sha !== "string" || !SHA_RE.test(parsed.sha)) continue;
+      if (typeof parsed.to !== "string" || !parsed.to) continue;
+      out.push({ branch: parsed.branch, sha: parsed.sha.toLowerCase(), to: parsed.to });
     } catch {
       // Malformed payload — ignore this marker, keep scanning.
     }

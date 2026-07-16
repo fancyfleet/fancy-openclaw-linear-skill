@@ -54,21 +54,21 @@ describe("parseCodeArtifact", () => {
 });
 
 describe("marker round-trip", () => {
-  it("builds a marker that parses back to the same artifact", () => {
+  it("builds a marker that parses back to the same artifact, addressed to the recipient", () => {
     const a = { branch: "feature/AI-2479-guard", sha: "c81dfe0" };
-    expect(parseArtifactMarkers(buildArtifactMarker(a))).toEqual([a]);
+    expect(parseArtifactMarkers(buildArtifactMarker(a, "u-ai"))).toEqual([{ ...a, to: "u-ai" }]);
   });
 
   it("finds a marker embedded in surrounding prose", () => {
-    const body = `Handing off for review.\n\n${buildArtifactMarker({ branch: "main", sha: "abc1234" })}\n`;
-    expect(parseArtifactMarkers(body)).toEqual([{ branch: "main", sha: "abc1234" }]);
+    const body = `Handing off for review.\n\n${buildArtifactMarker({ branch: "main", sha: "abc1234" }, "u-ai")}\n`;
+    expect(parseArtifactMarkers(body)).toEqual([{ branch: "main", sha: "abc1234", to: "u-ai" }]);
   });
 
   it("returns every marker in document order", () => {
     const body = [
-      buildArtifactMarker({ branch: "first", sha: "1111111" }),
+      buildArtifactMarker({ branch: "first", sha: "1111111" }, "u-ai"),
       "prose in between",
-      buildArtifactMarker({ branch: "second", sha: "2222222" }),
+      buildArtifactMarker({ branch: "second", sha: "2222222" }, "u-ai"),
     ].join("\n");
     expect(parseArtifactMarkers(body).map((a) => a.branch)).toEqual(["first", "second"]);
   });
@@ -79,18 +79,37 @@ describe("marker round-trip", () => {
 
   it("skips a malformed marker rather than throwing", () => {
     // A single corrupt historical marker must not make a ticket ungateable.
-    const body = `<!-- artifact-disclosure: {not json} -->\n${buildArtifactMarker({ branch: "ok", sha: "abc1234" })}`;
-    expect(parseArtifactMarkers(body)).toEqual([{ branch: "ok", sha: "abc1234" }]);
+    const body = `<!-- artifact-disclosure: {not json} -->\n${buildArtifactMarker({ branch: "ok", sha: "abc1234" }, "u-ai")}`;
+    expect(parseArtifactMarkers(body)).toEqual([{ branch: "ok", sha: "abc1234", to: "u-ai" }]);
   });
 
   it("skips a marker missing required fields", () => {
     expect(parseArtifactMarkers('<!-- artifact-disclosure: {"branch":"x"} -->')).toEqual([]);
   });
 
+  // Ai's AI-2479 refusal: the reader enforced only "non-empty string" on the sha
+  // while parseCodeArtifact enforced SHA_RE on write. shasMatch prefix-compares
+  // on the shorter operand, so a recorded sha of "9" matched every declared sha
+  // starting with 9. Reading laxer than you write is how the comparison quietly
+  // stops comparing. Fix the parser if this goes red, not the assertion.
+  it("skips a record whose sha is not a sha", () => {
+    expect(parseArtifactMarkers('<!-- artifact-disclosure: {"branch":"x","sha":"9","to":"u-ai"} -->')).toEqual([]);
+    expect(parseArtifactMarkers('<!-- artifact-disclosure: {"branch":"x","sha":"nothex!","to":"u-ai"} -->')).toEqual([]);
+    // What the lax reader would have allowed through, made explicit:
+    expect(shasMatch("9", "9bc4942")).toBe(true);
+  });
+
+  // A record with no recipient names an obligation with nobody to owe it. The
+  // connector fires only on the agent a declaration was handed TO; an
+  // unaddressed marker would either fire on bystanders or on no one.
+  it("skips a record with no recipient", () => {
+    expect(parseArtifactMarkers('<!-- artifact-disclosure: {"branch":"x","sha":"abc1234"} -->')).toEqual([]);
+  });
+
   it("does not emit the declaring agent into the marker", () => {
     // Identity is resolved from the OAuth token connector-side; a self-reported
     // author would be forgeable by the party being checked.
-    const marker = buildArtifactMarker({ branch: "b", sha: "abc1234" });
+    const marker = buildArtifactMarker({ branch: "b", sha: "abc1234" }, "u-ai");
     expect(marker).not.toMatch(/author|by|agent/i);
   });
 });

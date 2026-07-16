@@ -116,12 +116,33 @@ beforeEach(() => {
 });
 
 describe("handoff-work --code-artifact — recording the declaration", () => {
-  it("appends a parseable marker to the handoff comment", async () => {
+  it("appends a parseable marker to the handoff comment, addressed to the recipient", async () => {
     await handoffWork("AI-2479", "Ai", { comment: "Ready for review.", codeArtifact: ARTIFACT });
 
     const body = postedBody();
     expect(body).toContain("Ready for review.");
-    expect(parseArtifactMarkers(body)).toEqual([{ branch: "feature/AI-2476-gate", sha: "b777e17" }]);
+    // `to` is the resolved Linear user id of the agent being handed the work —
+    // the party that owes a disclosure at their next handoff. The connector
+    // fires on that agent and nobody else; without an address, the guard blocks
+    // uninvolved third parties (Ai's AI-2479 refusal, AC4).
+    expect(parseArtifactMarkers(body)).toEqual([
+      { branch: "feature/AI-2476-gate", sha: "b777e17", to: "user-ai" },
+    ]);
+  });
+
+  it("addresses the marker to the delegate named on THIS handoff, not a fixed value", async () => {
+    // Guards the wiring rather than the shape: a marker hard-coded to one
+    // recipient, or built from the caller instead of the delegate, would pass
+    // the test above and silently mis-address every real handoff.
+    const HANZO = { id: "user-hanzo", name: "Hanzo", app: true };
+    mockResolveUserWithHints.mockResolvedValue(HANZO as never);
+    // executeTransition verifies the delegate persisted, so the post-update read
+    // has to reflect the delegate this handoff actually names.
+    mockUpdateIssue.mockResolvedValue({ ...genericIssue, delegate: HANZO } as never);
+
+    await handoffWork("AI-2479", "Hanzo", { comment: "Merging.", codeArtifact: ARTIFACT });
+
+    expect(parseArtifactMarkers(postedBody())[0]?.to).toBe("user-hanzo");
   });
 
   it("records the marker on the dev-impl owner-change path too", async () => {
