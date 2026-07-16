@@ -111,6 +111,47 @@ export async function findStateByName(teamId: string, alias: string): Promise<Wo
 }
 
 /**
+ * Resolve a Linear workflow state by its `type` rather than its name.
+ *
+ * Name-based resolution (findSemanticState) cannot express "the state that MEANS
+ * duplicate": teams name that column freely, and a name-list lookup silently
+ * misses any name not enumerated. Linear's `type` is the structural fact —
+ * exactly one meaning per value — so consolidation verbs resolve by it (AI-2445).
+ *
+ * Throws (never falls back to another state) when the team has no state of this
+ * type: a team without a duplicate column must fail explicitly, not quietly land
+ * the ticket in Done and count no-work-performed as delivery.
+ */
+export async function findStateByType(teamId: string, type: string): Promise<WorkflowState> {
+  const target = type.toLowerCase();
+  const matching = (states: WorkflowState[]) => states.filter((s) => (s.type ?? "").toLowerCase() === target);
+
+  let matches = matching(await getWorkflowStates(teamId));
+
+  // The states cache is written once and never invalidated, so a team that added
+  // its duplicate column after the cache was warmed would fail forever on stale
+  // data. A miss is rare and this is the failure path — re-read once from the API
+  // before concluding the state genuinely does not exist.
+  if (matches.length === 0) {
+    matches = matching(await getWorkflowStates(teamId, true));
+  }
+
+  if (matches.length === 0) {
+    throw new Error(
+      `Team ${teamId} has no workflow state of type "${type}", so this command cannot run. ` +
+        `Add a "${type}"-type state to the team's workflow in Linear, or use a different command. ` +
+        `(Refusing rather than falling back to another state — a wrong resting state is worse than an error.) ` +
+        `Try: linear states ${teamId} --refresh`
+    );
+  }
+
+  // A team may define several states of one type (e.g. two canceled-type columns).
+  // Lowest board position is the canonical one; sort explicitly so the choice is
+  // deterministic rather than dependent on Linear's node ordering.
+  return matches.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))[0];
+}
+
+/**
  * Resolve a semantic state name to an actual Linear workflow state.
  * Iterates through SEMANTIC_STATE_MAP candidates in order, returning the first match
  * found in the team's workflow states. This handles teams with different naming

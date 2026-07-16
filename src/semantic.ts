@@ -19,6 +19,7 @@ import { setProxyIntent, setProxyTarget } from "./client";
 import { getComments, getIssueHistory } from "./boards";
 import { getSelfUser } from "./auth";
 import { addComment, getIssue, updateIssue } from "./issues";
+import { createDuplicateRelation } from "./relations";
 import { resolveLabelIds } from "./labels";
 import { IssueHistory } from "./types";
 
@@ -791,6 +792,143 @@ export async function parkWork(
     }, {
       targetState: "backlog",
       commentMode: "optional",
+      clearDelegate: true,
+      clearAssignee: true,
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
+}
+
+export interface DuplicateResult extends SemanticResult {
+  /** Identifier of the canonical ticket this one was consolidated into. */
+  canonicalId: string;
+  /** True when the native Linear `duplicate` relation was created. */
+  relationCreated: boolean;
+  /** Set when the state landed but the relation write failed (state is authoritative). */
+  relationError: string | null;
+}
+
+/**
+ * linear duplicate <id> <canonical-id>
+ *
+ * Consolidate an existing ticket into a canonical one: move it to the team's
+ * `duplicate`-type state, clear ownership, and link it to the canonical ticket.
+ *
+ * Exists because neither terminal verb could express "settled, never do this"
+ * (AI-2445). `complete` → Done counted no-work-performed tickets as delivery;
+ * `park` → Backlog reads as *later*, not *never*, so consolidated duplicates got
+ * picked back up and regenerated the loop this verb ends.
+ */
+export async function duplicate(
+  issueId: string,
+  canonicalId: string,
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<DuplicateResult> {
+  // Validate the canonical ticket BEFORE any mutation: a refusal must leave the
+  // board untouched, and the checks below are the whole point of the verb.
+  const canonical = await getIssue(canonicalId);
+  const target = await getIssue(issueId);
+
+  if (canonical.id === target.id) {
+    throw new Error(
+      `Cannot mark ${target.identifier} as a duplicate of itself. ` +
+        `Pass the canonical ticket that survives consolidation as the second argument.`
+    );
+  }
+
+  // AC3: consolidating into a ticket that is itself dead is the "consolidated into
+  // a blocked ticket" failure — the duplicate chain points at something nobody will
+  // ever work, so the underlying need silently evaporates. Refuse mechanically.
+  const canonicalType = (canonical.state?.type ?? "").toLowerCase();
+  if (canonicalType === "duplicate" || canonicalType === "canceled") {
+    throw new Error(
+      `Cannot consolidate ${target.identifier} into ${canonical.identifier}: ` +
+        `${canonical.identifier} is itself in a dead state ("${canonical.state?.name}", type: ${canonicalType}). ` +
+        `Consolidating into a dead ticket buries the need instead of tracking it. ` +
+        `Find the live canonical ticket — if ${canonical.identifier} was itself marked duplicate, ` +
+        `follow its duplicate relation to the ticket that survived — and point at that instead.`
+    );
+  }
+
+  setProxyIntent("duplicate");
+  let result: TransitionResult;
+  try {
+    result = await executeTransition("duplicate", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      // Resolved by type, not name: teams name this column freely, and a missing
+      // duplicate-type state must fail loudly rather than fall back to Done (AC1/AC4).
+      targetStateType: "duplicate",
+      commentMode: "optional",
+      // Terminal: nothing should dispatch this ticket again (AC2).
+      clearDelegate: true,
+      clearAssignee: true,
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
+
+  // The state is the load-bearing outcome and it has already landed; a failed
+  // relation write must not present the consolidation as failed and invite a
+  // retry. Report it loudly instead and let the caller add the link by hand.
+  let relationCreated = false;
+  let relationError: string | null = null;
+  try {
+    await createDuplicateRelation(target.id, canonical.id);
+    relationCreated = true;
+  } catch (err) {
+    relationError = err instanceof Error ? err.message : String(err);
+    process.stderr.write(
+      `Warning: ${target.identifier} was moved to ${result.state} but the duplicate relation ` +
+        `to ${canonical.identifier} could not be created: ${relationError}\n` +
+        `The state change stands. Add the link in Linear manually.\n`
+    );
+  }
+
+  return { ...result, canonicalId: canonical.identifier, relationCreated, relationError };
+}
+
+/**
+ * linear cancel <id> --comment <reason>
+ *
+ * Retire a ticket that will never be worked: move it to the team's `canceled`-type
+ * state (named "Invalid" on the AI team) and clear ownership.
+ *
+ * The won't-do sibling of `duplicate` (AI-2445). Same gap, same workaround: without
+ * it, a ticket that should never be picked up could only go to Done (counts as
+ * delivery) or Backlog (reads as *later*, not *never*, so it gets picked back up).
+ *
+ * Named for the state *type*, not the AI team's column name: resolution is by type
+ * (AC1), so a verb called `invalid` would bake one team's label into a fleet-wide
+ * command that lands elsewhere on teams naming the column differently.
+ *
+ * The comment is required, unlike `duplicate`. A duplicate carries its own
+ * explanation — the canonical ticket it points at. A cancellation points at nothing,
+ * so with no reason recorded the ticket becomes a dead end that the next auditor has
+ * to re-litigate from scratch. That re-litigation is the loop this ticket set out to
+ * end.
+ */
+export async function cancel(
+  issueId: string,
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<SemanticResult> {
+  setProxyIntent("cancel");
+  try {
+    return await executeTransition("cancel", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      // Resolved by type, never name; a missing canceled-type state fails loudly
+      // rather than falling back to Done (AC1/AC4).
+      targetStateType: "canceled",
+      commentMode: "required",
+      // Terminal: nothing should dispatch this ticket again (AC2).
       clearDelegate: true,
       clearAssignee: true,
     });

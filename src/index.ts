@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { checkAuth, linearDoctor } from "./auth";
 import { getMyBlocked } from "./blocked";
 import { getBoard, getRecentlyDone, getReviewQueue, getStalled } from "./boards";
-import { considerWork, refuseWork, beginWork, handoffWork, complete, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, briefReady, filed, continueWorkflow, requestRevision, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, stewardTakeover } from "./semantic";
+import { considerWork, refuseWork, beginWork, handoffWork, complete, duplicate, cancel, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, briefReady, filed, continueWorkflow, requestRevision, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, stewardTakeover } from "./semantic";
 import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, updateIssue, verifyComment } from "./issues";
 import { attachIssueToMilestone, attachIssueToProject, attachIssueToProjectById, createMilestone, createProject, editProject, findProjectByName, getProjectDetail, getProjectIssues, listMilestones, listProjects } from "./projects";
 import { createBlockingRelation, listRelations, removeBlockingRelation, removeParentIssue, setParentIssue } from "./relations";
@@ -891,6 +891,14 @@ async function main(): Promise<void> {
 
   program.command("park").alias("parkWork").argument("<id>").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").description("Move ticket to Backlog and clear ownership (intentional deprioritization)").action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
     await runCommand(async () => parkWork(id, options), program.opts<{ human?: boolean }>().human);
+  });
+
+  program.command("duplicate").argument("<id>").argument("<canonical-id>", "the canonical ticket that survives consolidation").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").description("Consolidate a ticket into a canonical one: move to the team's duplicate state, clear ownership, link the two").action(async (id: string, canonicalId: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+    await runCommand(async () => duplicate(id, canonicalId, options), program.opts<{ human?: boolean }>().human);
+  });
+
+  program.command("cancel").alias("invalid").argument("<id>").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").description("Retire a ticket that will never be worked: move to the team's canceled state (\"Invalid\" on AI) and clear ownership").action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+    await runCommand(async () => cancel(id, options), program.opts<{ human?: boolean }>().human);
   });
 
   program.command("steward-takeover").alias("stewardTakeover")
