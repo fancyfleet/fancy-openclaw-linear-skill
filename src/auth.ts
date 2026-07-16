@@ -297,13 +297,36 @@ export async function linearDoctor(): Promise<void> {
     console.log(`❌ My issues fetch failed: ${err instanceof Error ? err.message : String(err)}\n`);
   }
 
-  // Token type detection
+  // Token type detection. checkAuth() above ran ensureApiKey(), which normalizes
+  // the resolved token into LINEAR_API_KEY regardless of which source won — so
+  // this reports on the token the CLI actually authenticates with.
   const apiKey = process.env.LINEAR_API_KEY || "none";
-  if (apiKey.startsWith("lin_oauth_")) {
-    console.log("✅ Using OAuth token (auto-refreshes every ~20h)\n");
-  } else if (apiKey.startsWith("lin_api_")) {
-    console.log("✅ Using personal API key (does not expire)\n");
-  } else {
-    console.log(`⚠️  Unknown token format: ${apiKey.substring(0, 20)}...\n`);
+  console.log(`${describeTokenType(apiKey)}\n`);
+}
+
+/**
+ * Describe the credential the CLI is using.
+ *
+ * `lpx_` is the fleet's healthy end state: a proxy token brokered by the
+ * connector. It matched neither branch below, so it fell through to the
+ * unknown-format warning — the check warned loudest at exactly the configuration
+ * the broker migration existed to reach, which is how a warning gets trained away
+ * (AI-2452).
+ */
+export function describeTokenType(apiKey: string): string {
+  if (apiKey.startsWith("lpx_")) {
+    return "✅ Using proxy token (routes via connector)";
   }
+  if (apiKey.startsWith("lin_oauth_")) {
+    return "✅ Using OAuth token (auto-refreshes every ~20h)";
+  }
+  if (apiKey.startsWith("lin_api_")) {
+    return "✅ Using personal API key (does not expire)";
+  }
+  // Still a real signal — narrowed, not deleted. Report the shape without
+  // echoing the credential: an unrecognized token is the case most likely to be
+  // pasted into a ticket, and a `_`-less value has no prefix to safely show.
+  const marker = apiKey.indexOf("_");
+  const prefix = marker > 0 ? `${apiKey.slice(0, marker + 1)}…` : "(no recognizable prefix)";
+  return `⚠️  Unknown token format: ${prefix} (${apiKey.length} chars)`;
 }

@@ -55,10 +55,12 @@ interface CommentCreateResponse {
 
 // ISSUE_FIELDS imported from ./fragments
 
-interface RawIssue extends Omit<Issue, "milestone" | "labels" | "relations" | "comments" | "children"> {
+interface RawIssue
+  extends Omit<Issue, "milestone" | "labels" | "relations" | "inverseRelations" | "comments" | "children"> {
   projectMilestone?: Issue["milestone"];
   labels?: { nodes?: Issue["labels"] };
   relations?: { nodes?: Issue["relations"] };
+  inverseRelations?: { nodes?: Issue["inverseRelations"] };
   comments?: { nodes?: Issue["comments"] };
   children?: { nodes?: Issue["children"] };
 }
@@ -69,6 +71,7 @@ function normalizeIssue(issue: RawIssue): Issue {
     milestone: issue.projectMilestone ?? null,
     labels: issue.labels?.nodes ?? [],
     relations: issue.relations?.nodes ?? [],
+    inverseRelations: issue.inverseRelations?.nodes ?? [],
     comments: issue.comments?.nodes ?? [],
     children: issue.children?.nodes ?? []
   };

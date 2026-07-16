@@ -56,6 +56,26 @@ export interface IssueRelation {
   relatedIssue: Pick<Issue, "id" | "identifier" | "title">;
 }
 
+/**
+ * Which side of the relation the issue you asked about sits on.
+ * `outbound` — it is `relation.issue`; `inbound` — it is `relation.relatedIssue`.
+ */
+export type RelationDirection = "outbound" | "inbound";
+
+/**
+ * A relation resolved from the perspective of a specific issue.
+ *
+ * Linear stores each relation once, as a directed edge. `type` alone is therefore
+ * ambiguous to a reader: a `blocks` edge means "I block them" or "they block me"
+ * depending on which end you asked from. `relation` resolves that into a label
+ * that reads correctly for the issue that was queried.
+ */
+export interface AnnotatedIssueRelation extends IssueRelation {
+  direction: RelationDirection;
+  /** `type` restated from the queried issue's point of view, e.g. `blocked-by`. */
+  relation: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -97,7 +117,10 @@ export interface Issue {
   }>;
   parent?: Pick<Issue, "id" | "identifier" | "title"> | null;
   children?: Array<Pick<Issue, "id" | "identifier" | "title"> & { state?: WorkflowState | null }>;
+  /** Edges where this issue is the source. */
   relations?: IssueRelation[];
+  /** Edges where this issue is the target — where its own blockers live. */
+  inverseRelations?: IssueRelation[];
   comments?: Comment[];
 }
 

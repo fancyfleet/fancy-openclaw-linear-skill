@@ -52,6 +52,26 @@ export const COMMENT_FIELDS = `
   }
 `;
 
+/**
+ * One relation edge. Selected identically for `relations` and `inverseRelations`
+ * so the two directions cannot drift apart — an issue's own blockers live in
+ * `inverseRelations`, and fetching only `relations` made them invisible (AI-2452).
+ */
+export const RELATION_NODE_FIELDS = `
+  id
+  type
+  issue {
+    id
+    identifier
+    title
+  }
+  relatedIssue {
+    id
+    identifier
+    title
+  }
+`;
+
 export const ISSUE_FIELDS = `
   id
   identifier
@@ -108,18 +128,12 @@ export const ISSUE_FIELDS = `
   }
   relations {
     nodes {
-      id
-      type
-      issue {
-        id
-        identifier
-        title
-      }
-      relatedIssue {
-        id
-        identifier
-        title
-      }
+      ${RELATION_NODE_FIELDS}
+    }
+  }
+  inverseRelations {
+    nodes {
+      ${RELATION_NODE_FIELDS}
     }
   }
   comments(last: 50, orderBy: createdAt) {
