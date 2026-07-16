@@ -7,7 +7,7 @@ import { checkAuth, linearDoctor } from "./auth";
 import { getMyBlocked } from "./blocked";
 import { getBoard, getRecentlyDone, getReviewQueue, getStalled } from "./boards";
 import { considerWork, refuseWork, beginWork, handoffWork, complete, duplicate, cancel, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, briefReady, filed, continueWorkflow, requestRevision, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, stewardTakeover } from "./semantic";
-import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, updateIssue, readLastComment, readState, verifyComment } from "./issues";
+import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, moveIssueTeam, readLastComment, readState, updateIssue, verifyComment } from "./issues";
 import { attachIssueToMilestone, attachIssueToProject, attachIssueToProjectById, createMilestone, createProject, editProject, findProjectByName, getProjectDetail, getProjectIssues, listMilestones, listProjects } from "./projects";
 import { createBlockingRelation, listRelations, removeBlockingRelation, removeParentIssue, setParentIssue } from "./relations";
 import { findSemanticState, findStateByName, getWorkflowStates } from "./states";
@@ -623,11 +623,12 @@ async function main(): Promise<void> {
   program.command("issue-move-team")
     .argument("<issueId>", "Issue identifier (e.g. LIFE-379)")
     .argument("<team>", "Target team key or UUID (e.g. AI)")
+    .option("--state <name>", "Target state in the new team's workflow")
     .description("Move an issue to a different team")
-    .action(async (issueId: string, team: string) => {
+    .action(async (issueId: string, team: string, options: { state?: string }) => {
       await runCommand(async () => {
         const teamId = await resolveTeamId(team);
-        return updateIssue(issueId, { teamId });
+        return moveIssueTeam(issueId, teamId, { state: options.state });
       }, program.opts<{ human?: boolean }>().human);
     });
 
