@@ -2,7 +2,7 @@ import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
 import { linearGraphQL } from "./client";
-import { IssueRelation } from "./types";
+import { AnnotatedIssueRelation, IssueRelation, RelationDirection } from "./types";
 import { getIssue, updateIssue } from "./issues";
 
 interface RelationMutationResponse {
@@ -14,9 +14,45 @@ interface RelationMutationResponse {
   };
 }
 
-export async function listRelations(issueId: string): Promise<IssueRelation[]> {
+/**
+ * Inbound rewordings for the relation types whose direction carries meaning.
+ * `related` and `similar` are symmetric, so they read the same from either end.
+ */
+const INBOUND_LABELS: Record<string, string> = {
+  blocks: "blocked-by",
+  duplicate: "duplicate-of"
+};
+
+/** Restate a relation type from the point of view of the issue that was queried. */
+export function relationLabel(type: string | null | undefined, direction: RelationDirection): string {
+  const relationType = type ?? "related";
+  if (direction === "outbound") return relationType;
+  return INBOUND_LABELS[relationType] ?? relationType;
+}
+
+function annotate(relations: IssueRelation[], direction: RelationDirection): AnnotatedIssueRelation[] {
+  return relations.map((relation) => ({
+    ...relation,
+    direction,
+    relation: relationLabel(relation.type, direction)
+  }));
+}
+
+/**
+ * Every relation touching `issueId`, in both directions.
+ *
+ * Linear splits these across two fields: `relations` (this issue is the source)
+ * and `inverseRelations` (this issue is the target). Returning only the former
+ * hid an issue's own blockers, which made the standing "link the blocker, then
+ * verify with `linear relations`" rule structurally unable to confirm the link
+ * it was checking for (AI-2452).
+ *
+ * Each edge is labelled so the two directions stay distinguishable: an inbound
+ * `blocks` edge is reported as `blocked-by`, never merged into `blocks`.
+ */
+export async function listRelations(issueId: string): Promise<AnnotatedIssueRelation[]> {
   const issue = await getIssue(issueId);
-  return issue.relations ?? [];
+  return [...annotate(issue.relations ?? [], "outbound"), ...annotate(issue.inverseRelations ?? [], "inbound")];
 }
 
 export async function createBlockingRelation(
