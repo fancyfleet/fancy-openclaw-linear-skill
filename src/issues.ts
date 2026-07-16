@@ -270,12 +270,21 @@ export async function moveIssueTeam(
 const BARE_ISSUE_RE = /\b([A-Z]{2,10}-\d+)\b/g;
 const HAS_BARE_ISSUE_RE = /\b[A-Z]{2,10}-\d+\b/;
 
-// Regex that skips bare identifiers inside code blocks, code spans, markdown links, or URLs
+// Regex that skips bare identifiers inside code blocks, code spans, markdown
+// links, URLs, or HTML comments.
+//
+// AI-2479: HTML comments carry machine-readable markers (the artifact-disclosure
+// record). Rewriting an identifier inside one corrupts the payload it encodes —
+// a branch named "feature/AI-2476-gate" would be stored as
+// "feature/[AI-2476](https://...)-gate" and never match the real branch again.
+// The rewrite is also pointless there: HTML comments do not render, so no human
+// ever sees the link.
 const SKIP_PATTERNS: RegExp[] = [
   /```[\s\S]*?```/g,
   /`[^`\n]+`/g,
   /!?\[[^\]]*\]\([^)]*\)/g,
-  /https?:\/\/\S+/g
+  /https?:\/\/\S+/g,
+  /<!--[\s\S]*?-->/g
 ];
 
 let cachedWorkspaceUrlKey: string | undefined;
