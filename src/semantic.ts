@@ -892,6 +892,51 @@ export async function duplicate(
   return { ...result, canonicalId: canonical.identifier, relationCreated, relationError };
 }
 
+/**
+ * linear cancel <id> --comment <reason>
+ *
+ * Retire a ticket that will never be worked: move it to the team's `canceled`-type
+ * state (named "Invalid" on the AI team) and clear ownership.
+ *
+ * The won't-do sibling of `duplicate` (AI-2445). Same gap, same workaround: without
+ * it, a ticket that should never be picked up could only go to Done (counts as
+ * delivery) or Backlog (reads as *later*, not *never*, so it gets picked back up).
+ *
+ * Named for the state *type*, not the AI team's column name: resolution is by type
+ * (AC1), so a verb called `invalid` would bake one team's label into a fleet-wide
+ * command that lands elsewhere on teams naming the column differently.
+ *
+ * The comment is required, unlike `duplicate`. A duplicate carries its own
+ * explanation — the canonical ticket it points at. A cancellation points at nothing,
+ * so with no reason recorded the ticket becomes a dead end that the next auditor has
+ * to re-litigate from scratch. That re-litigation is the loop this ticket set out to
+ * end.
+ */
+export async function cancel(
+  issueId: string,
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<SemanticResult> {
+  setProxyIntent("cancel");
+  try {
+    return await executeTransition("cancel", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      // Resolved by type, never name; a missing canceled-type state fails loudly
+      // rather than falling back to Done (AC1/AC4).
+      targetStateType: "canceled",
+      commentMode: "required",
+      // Terminal: nothing should dispatch this ticket again (AC2).
+      clearDelegate: true,
+      clearAssignee: true,
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
+}
+
 // --- Dev-impl workflow semantic verbs (AI-1362; v8 verbs added 2026-06-11) ---
 // These verbs map to the transitions in dev-impl.yaml. Each sets the
 // x-openclaw-linear-intent header so the proxy/gate can enforce legal moves.
