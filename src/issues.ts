@@ -914,6 +914,88 @@ interface VerifyCommentResponse {
   } | null;
 }
 
+interface ReadStateResponse {
+  issue: {
+    state: {
+      name: string;
+      type: string;
+    };
+  } | null;
+}
+
+interface ReadLastCommentResponse {
+  issue: {
+    comments: {
+      nodes: Array<{
+        id: string;
+        body: string;
+        createdAt: string;
+        user: { name: string; displayName?: string | null } | null;
+      }>;
+    };
+  } | null;
+}
+
+export async function readState(id: string): Promise<{ name: string; type: string }> {
+  const data = await linearGraphQL<ReadStateResponse>(
+    `
+      query ReadState($id: String!) {
+        issue(id: $id) {
+          state { name type }
+        }
+      }
+    `,
+    { id }
+  );
+
+  if (!data.issue) {
+    throw new Error(`Issue not found: ${id}`);
+  }
+
+  return data.issue.state;
+}
+
+export async function readLastComment(id: string): Promise<{
+  commentId: string;
+  body: string;
+  author: string;
+  createdAt: string;
+} | null> {
+  const data = await linearGraphQL<ReadLastCommentResponse>(
+    `
+      query ReadLastComment($id: String!) {
+        issue(id: $id) {
+          comments(first: 50, orderBy: createdAt) {
+            nodes {
+              id
+              body
+              createdAt
+              user { name displayName }
+            }
+          }
+        }
+      }
+    `,
+    { id }
+  );
+
+  if (!data.issue) {
+    throw new Error(`Issue not found: ${id}`);
+  }
+
+  const newest = [...data.issue.comments.nodes].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  if (!newest) {
+    return null;
+  }
+
+  return {
+    commentId: newest.id,
+    body: newest.body,
+    author: newest.user?.name ?? "",
+    createdAt: newest.createdAt
+  };
+}
+
 export async function verifyComment(commentId: string): Promise<{
   commentId: string;
   exists: boolean;
