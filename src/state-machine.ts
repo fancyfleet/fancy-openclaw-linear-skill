@@ -236,7 +236,7 @@ export function getInlineCommentSafetyWarning(body: string): string | null {
   const reason = suspiciousShellCorruption
     ? "looks like shell command-substitution may have stripped content"
     : "contains Markdown/code-like syntax";
-  return `Warning: inline --comment ${reason}. Shell parses inline comments before linear receives them; use --comment-file for bodies with backticks, code, paths, or Markdown.`;
+  return `Warning: inline --comment ${reason}. Your shell parses inline comments before linear receives them, so backticks, quotes, $, and newlines can be mangled or stripped; use --comment-file to pass the body through untouched. Both paths post Markdown identically once linear has the body.`;
 }
 
 function warnInlineCommentSafety(body: string): void {

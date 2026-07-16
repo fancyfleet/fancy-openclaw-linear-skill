@@ -259,7 +259,7 @@ async function runCommand(handler: () => Promise<unknown>, human = false): Promi
 const DEPRECATION_MSG =
   "⚠️  This command is deprecated for agent use. Use semantic commands: consider-work, refuse-work, begin-work, handoff-work, complete, needs-human, park. Pass --silence-deprecation to suppress.";
 
-const INLINE_COMMENT_HELP = "Inline --comment is shell-parsed; use --comment-file for bodies with backticks, code, paths, or Markdown.";
+const INLINE_COMMENT_HELP = "Inline --comment is shell-parsed; use --comment-file to pass bodies with backticks, quotes, $, or newlines through untouched. Markdown itself is safe either way.";
 
 function deprecationWarn(cmd: string, noWarn?: boolean): void {
   if (!noWarn) {
