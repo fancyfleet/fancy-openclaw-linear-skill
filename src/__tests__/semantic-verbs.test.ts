@@ -204,15 +204,15 @@ describe("dev-impl semantic verbs", () => {
       expect(mockAddComment).not.toHaveBeenCalled();
     });
 
-    it("omits assigneeId entirely when target is an app user and clearAssignee is false (AI-1395)", async () => {
+    it("sends assigneeId null when target is an app user and clearAssignee is false (AI-2432)", async () => {
       mockResolveUserWithHints.mockResolvedValueOnce({ id: "user-igor", name: "Igor (Back End Dev)", app: true });
       await accept("AI-200", "Igor (Back End Dev)");
       const call = mockUpdateIssue.mock.calls[0][1] as any;
       expect(call.delegateId).toBe("user-igor");
-      // accept doesn't set clearAssignee, so assigneeId is never set to null.
-      // The guard (assigneeId !== null) still fires since undefined !== null,
-      // but the result is the same: assigneeId is omitted.
-      expect(call.assigneeId).toBeUndefined();
+      // accept doesn't set clearAssignee, so assigneeId starts undefined.
+      // AI-2432: send assigneeId:null for app-user delegates with no explicit
+      // assignee, matching handoff.ts behavior.
+      expect(call.assigneeId).toBeNull();
     });
 
     it("does NOT omit assigneeId when target is a regular (non-app) user", async () => {
@@ -309,7 +309,8 @@ describe("dev-impl semantic verbs", () => {
       await requestChanges("AI-200", { comment: "Needs more tests.", target: "Igor (Back End Dev)" });
       const call = mockUpdateIssue.mock.calls[0][1] as any;
       expect(call.delegateId).toBe("user-igor");
-      expect(call.assigneeId).toBeUndefined();
+      // AI-2432: app-user delegate with no explicit assignee → send null
+      expect(call.assigneeId).toBeNull();
     });
 
     it("re-delegates to target when --target is provided (non-app user)", async () => {
@@ -349,7 +350,8 @@ describe("dev-impl semantic verbs", () => {
       await testsReady("AI-200", "Igor (Back End Dev)");
       const call = mockUpdateIssue.mock.calls[0][1] as any;
       expect(call.delegateId).toBe("user-igor");
-      expect(call.assigneeId).toBeUndefined();
+      // AI-2432: app-user delegate with no explicit assignee → send null
+      expect(call.assigneeId).toBeNull();
     });
 
     it("does not include delegateId when no target is provided", async () => {
@@ -469,7 +471,8 @@ describe("dev-impl semantic verbs", () => {
       await acFail("AI-200", { comment: "Fails AC.", target: "Igor (Back End Dev)" });
       const call = mockUpdateIssue.mock.calls[0][1] as any;
       expect(call.delegateId).toBe("user-igor");
-      expect(call.assigneeId).toBeUndefined();
+      // AI-2432: app-user delegate with no explicit assignee → send null
+      expect(call.assigneeId).toBeNull();
     });
 
     it("does not include delegateId when no --target is provided", async () => {
@@ -527,8 +530,8 @@ describe("dev-impl semantic verbs", () => {
       await reject("AI-200", { comment: "Build is red.", target: "Igor (Back End Dev)" });
       const call = mockUpdateIssue.mock.calls[0][1] as any;
       expect(call.delegateId).toBe("user-igor");
-      // app-user delegate → assigneeId omitted (AI-1395)
-      expect(call.assigneeId).toBeUndefined();
+      // app-user delegate with no explicit assignee → send null (AI-2432)
+      expect(call.assigneeId).toBeNull();
     });
 
     it("re-delegates to --target when provided (AI-1495, non-app user)", async () => {
