@@ -131,7 +131,10 @@ function fakeLinearApi(query: string): Promise<unknown> {
     projectMilestone: null,
     comments: { nodes }
   };
-  return Promise.resolve({ issues: { nodes: [issue] } });
+  // INF-29: getIssue resolves every id — identifier or UUID — through the
+  // `issue(id:)` node query, so the response is a single issue rather than a
+  // filtered node list.
+  return Promise.resolve({ issue });
 }
 
 beforeEach(() => {

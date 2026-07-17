@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { linearGraphQL } from "./client";
+import { linearGraphQL, LinearApiError } from "./client";
 import { getSelfUser } from "./auth";
 import { ISSUE_FIELDS, STATE_BLOCK, ASSIGNEE_BLOCK, TEAM_BLOCK, DELEGATE_BLOCK } from "./fragments";
 import { captionChunks, chunkCommentBody, DEFAULT_MAX_COMMENT_BYTES } from "./chunk";
@@ -82,47 +82,52 @@ function normalizeIssue(issue: RawIssue): Issue {
   };
 }
 
-interface IssuesByFilterResponse {
-  issues: {
-    nodes: RawIssue[];
-  };
+/**
+ * Does this error mean "Linear has no such issue", as opposed to auth,
+ * network, or a malformed query?
+ *
+ * `issue(id:)` answers a bad id with HTTP 200 + a GraphQL `errors` array, so
+ * linearGraphQL raises before any `{ issue: null }` reaches us. The message it
+ * carries ("Entity not found: Issue") names neither the id nor the word we
+ * report to callers, hence the translation below.
+ */
+function isEntityNotFound(error: unknown): boolean {
+  if (!(error instanceof LinearApiError)) return false;
+  return (error.details ?? []).some((detail) =>
+    detail?.message?.startsWith("Entity not found")
+  );
 }
 
-const IDENTIFIER_RE = /^([A-Za-z][A-Za-z0-9]*)-(\d+)$/;
-
 export async function getIssue(id: string): Promise<Issue> {
-  const identifierMatch = IDENTIFIER_RE.exec(id);
-  if (identifierMatch) {
-    const teamKey = identifierMatch[1].toUpperCase();
-    const number = Number(identifierMatch[2]);
-    const data = await linearGraphQL<IssuesByFilterResponse>(
+  // `issue(id:)` takes a UUID or a human identifier, matches identifiers
+  // case-insensitively, and — the reason this is the only lookup we do —
+  // still resolves an identifier that a team move has retired, returning the
+  // issue under its live one.
+  //
+  // Decomposing an identifier into team key + number and filtering on the pair
+  // is a hand-rolled version of the same lookup that silently loses that last
+  // property: post-move, the captured key and number no longer describe the
+  // issue, the filter matches nothing, and a ticket that plainly exists reads
+  // as not-found. That is INF-29 — AI-2535 became INF-27 and every dispatch
+  // holding the old identifier went unactionable.
+  let data: IssueResponse;
+  try {
+    data = await linearGraphQL<IssueResponse>(
       `
-        query IssueByIdentifier($teamKey: String!, $number: Float!) {
-          issues(filter: { number: { eq: $number }, team: { key: { eq: $teamKey } } }) {
-            nodes {
-              ${ISSUE_FIELDS}
-            }
+        query IssueDetail($id: String!) {
+          issue(id: $id) {
+            ${ISSUE_FIELDS}
           }
         }
       `,
-      { teamKey, number }
+      { id }
     );
-    if (!data.issues.nodes.length) {
+  } catch (error) {
+    if (isEntityNotFound(error)) {
       throw new Error(`Issue not found: ${id}`);
     }
-    return normalizeIssue(data.issues.nodes[0]);
+    throw error;
   }
-
-  const data = await linearGraphQL<IssueResponse>(
-    `
-      query IssueDetail($id: String!) {
-        issue(id: $id) {
-          ${ISSUE_FIELDS}
-        }
-      }
-    `,
-    { id }
-  );
   if (!data.issue) {
     throw new Error(`Issue not found: ${id}`);
   }

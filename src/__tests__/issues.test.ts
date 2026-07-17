@@ -76,12 +76,15 @@ describe("getIssue", () => {
   });
 
   it("fetches issue by identifier (e.g. AI-100)", async () => {
-    mockedGraphQL.mockResolvedValue({ issues: { nodes: [mockIssue] } });
+    mockedGraphQL.mockResolvedValue({ issue: mockIssue });
     const result = await getIssue("AI-100");
     expect(result.identifier).toBe("AI-100");
+    // An identifier goes to the same node query a UUID does, verbatim — see
+    // inf-29-getissue-node-query.test.ts for why the team+number filter this
+    // used to assert had to go.
     expect(mockedGraphQL).toHaveBeenCalledWith(
-      expect.stringContaining("IssueByIdentifier"),
-      { teamKey: "AI", number: 100 }
+      expect.stringContaining("issue(id: $id)"),
+      { id: "AI-100" }
     );
   });
 
@@ -91,7 +94,7 @@ describe("getIssue", () => {
   });
 
   it("throws when issue not found by identifier", async () => {
-    mockedGraphQL.mockResolvedValue({ issues: { nodes: [] } });
+    mockedGraphQL.mockResolvedValue({ issue: null });
     await expect(getIssue("ZZ-999")).rejects.toThrow("Issue not found");
   });
 });
