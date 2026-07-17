@@ -666,14 +666,23 @@ export async function executeTransition(
   //   • { delegateId: app_user, assigneeId: app_user } → explicit API error
   //   • { delegateId: app_user, assigneeId: <human> } → explicit API error
   //   • { delegateId: app_user }                      → valid; assignee left unchanged
-  // When the delegate is an app user with a specific (non-null) assigneeId,
-  // omit assigneeId entirely so Linear accepts the write.
+  // When the delegate is an app user:
+  //   - If no explicit assignee was requested (assigneeId is undefined): send null
+  //     to explicitly clear the assignee, matching handoff.ts (AI-2432).
+  //   - If a specific assignee was requested (via assigneeName): omit assigneeId
+  //     entirely so Linear accepts the write (AI-1395).
   if (delegateId && delegateIsAppUser && assigneeId !== null) {
-    process.stderr.write(
-      `Info: delegate "${delegateName}" is an app user; omitting assigneeId from mutation to satisfy Linear API constraint (AI-1395).\n`
-    );
-    assigneeId = undefined;
-    assigneeNameResult = null;
+    if (assigneeId === undefined) {
+      // No explicit assignee set → send null to match handoff.ts behavior (AI-2432)
+      assigneeId = null;
+    } else {
+      // assigneeName produced a specific user — omit to avoid API error (AI-1395)
+      process.stderr.write(
+        `Info: delegate "${delegateName}" is an app user; omitting assigneeId from mutation to satisfy Linear API constraint (AI-1395).\n`
+      );
+      assigneeId = undefined;
+      assigneeNameResult = null;
+    }
   }
 
   // AI-1840: any omitStateId transition in proxy mode is proxy-governed — the proxy's
