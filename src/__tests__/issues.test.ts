@@ -502,7 +502,34 @@ describe("findUserByName", () => {
     expect(user.id).toBe("u-signe");
   });
 
-  // INF-81: prefix match throws when multiple users share the same prefix
+  // INF-80: slug map resolves colliding prefixes (e.g. `ken` → "Ken (Private Tutor)")
+  // without hitting the prefix-ambiguity error. The slug is expanded to the full
+  // display name before the API query, so the exact-match path succeeds.
+  it("resolves known slug via AGENT_SLUG_MAP before API query", async () => {
+    mockedGraphQL.mockResolvedValue({
+      users: { nodes: [
+        { id: "u-ken", name: "Ken (Private Tutor)" },
+        { id: "u-kenji", name: "Kenji (Game Director)" }
+      ] }
+    });
+    const user = await findUserByName("ken");
+    expect(user.id).toBe("u-ken");
+    expect(user.name).toBe("Ken (Private Tutor)");
+  });
+
+  // INF-80: unknown slug falls through to normal prefix/single-result resolution
+  it("falls through to prefix match when slug is not in AGENT_SLUG_MAP", async () => {
+    mockedGraphQL.mockResolvedValue({
+      users: { nodes: [
+        { id: "u-whoami", name: "Whoami (Mysterious)" }
+      ] }
+    });
+    const user = await findUserByName("whoami");
+    expect(user.id).toBe("u-whoami");
+  });
+
+  // INF-80: prefix match throws when multiple users share the same prefix
+  // and neither is a known slug
   it("throws on multiple prefix matches when no exact match", async () => {
     mockedGraphQL.mockResolvedValue({
       users: { nodes: [

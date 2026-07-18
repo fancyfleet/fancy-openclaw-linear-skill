@@ -625,7 +625,68 @@ export async function getMyManaging(): Promise<Issue[]> {
   return issues;
 }
 
+/**
+ * Agent slug → canonical Linear display name map.
+ *
+ * Agent slugs are short names (e.g. `signe`, `ken`, `fin`) used in
+ * workflow delegation commands like `continue-workflow <id> <slug>`.
+ * They differ from full Linear display names. Resolving them through
+ * `containsIgnoreCase` alone causes substring collisions when a slug
+ * is a prefix of multiple user names (e.g. `ken` matches both
+ * "Ken (Private Tutor)" and "Kenji (Game Director)").
+ *
+ * This map provides an unambiguous expansion in findUserByName.
+ * Update when agents are added or change display names in Linear.
+ */
+const AGENT_SLUG_MAP: Record<string, string> = {
+  ai: "Ai",
+  astrid: "Astrid (CPO)",
+  caspar: "Caspar (Image Specialist)",
+  clay: "Clay (3D Artist)",
+  cra: "CodeReviewAgent",
+  felix: "Felix (Unity Dev)",
+  finn: "Finn (CFO)",
+  grover: "Grover (OpenClaw Mechanic)",
+  hanzo: "Hanzo (Repo Manager)",
+  igor: "Igor (Back End Dev)",
+  kana: "Kana (Documentation Specialist)",
+  ken: "Ken (Private Tutor)",
+  kenji: "Kenji (Game Director)",
+  lacey: "Lacey",
+  laren: "Laren (CDO)",
+  maren: "Maren (Travel Agent)",
+  matt: "Matt Henry",
+  mckell: "Mckell (CMO)",
+  mika: "Mika (Torrent Lord)",
+  noah: "Noah (React Native Dev)",
+  penny: "Penny (UI Designer)",
+  poe: "Poe (Writer)",
+  sage: "Sage (Frontend Dev)",
+  signe: "Signe (UX Researcher)",
+  tdd: "TestDrivenDevelopmentAgent",
+  woz: "Woz",
+  yoshi: "Yoshi (ILL Liason)",
+};
+
+/**
+ * Resolve a name to a Linear user.
+ *
+ * Resolution order:
+ * 1. Slug map lookup — expand known agent slugs to canonical display names
+ * 2. Linear `containsIgnoreCase` query
+ * 3. Exact case-insensitive match on display name
+ * 4. Prefix match (single user's name starts with query)
+ * 5. Single result fallback
+ * 6. Error with candidates
+ */
 export async function findUserByName(name: string): Promise<{ id: string; name: string; email?: string | null; app?: boolean | null }> {
+  // Step 1: Slug map expansion — resolve known agent slugs to canonical display names
+  // before the API query, preventing prefix collisions like `ken` matching both
+  // "Ken (Private Tutor)" and "Kenji (Game Director)".
+  const slugName = AGENT_SLUG_MAP[name.toLowerCase()];
+  if (slugName) {
+    name = slugName;
+  }
   const data = await linearGraphQL<SearchUsersResponse>(
     `
       query SearchUsers($query: String!) {
