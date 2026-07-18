@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { checkAuth, linearDoctor } from "./auth";
 import { getMyBlocked } from "./blocked";
 import { getBoard, getRecentlyDone, getReviewQueue, getStalled } from "./boards";
-import { considerWork, refuseWork, beginWork, handoffWork, complete, duplicate, cancel, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, briefReady, filed, continueWorkflow, requestRevision, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, stewardTakeover } from "./semantic";
+import { considerWork, refuseWork, beginWork, handoffWork, complete, closeAdhoc, duplicate, cancel, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, briefReady, filed, continueWorkflow, requestRevision, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, stewardTakeover } from "./semantic";
 import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, moveIssueTeam, readLastComment, readState, updateIssue, verifyComment } from "./issues";
 import { attachIssueToMilestone, attachIssueToProject, attachIssueToProjectById, createMilestone, createProject, editProject, findProjectByName, getProjectDetail, getProjectIssues, listMilestones, listProjects } from "./projects";
 import { createBlockingRelation, listRelations, removeBlockingRelation, removeParentIssue, setParentIssue } from "./relations";
@@ -1082,6 +1082,15 @@ async function main(): Promise<void> {
     .description("Break-glass: re-enter the ticket at workflow intake (dev-impl: any → intake)")
     .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
       await runCommand(async () => escape(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("close-adhoc").alias("closeAdhoc").argument("<id>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Close a non-workflow (ad-hoc) ticket; rejects tickets enrolled in an active workflow; requires --comment for audit trail")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => closeAdhoc(id, options), program.opts<{ human?: boolean }>().human);
     });
 
   program.command("demote").argument("<id>")

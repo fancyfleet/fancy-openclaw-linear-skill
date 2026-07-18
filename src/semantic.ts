@@ -1598,6 +1598,40 @@ export async function escape(
 }
 
 /**
+ * linear close-adhoc <id>
+ *
+ * Close a non-workflow (ad-hoc) ticket. Explicitly rejects tickets that are
+ * enrolled in an active workflow (have a `wf:*` label). Requires a comment
+ * for audit trail (who closed it and why).
+ * - Check: reject if ticket has any `wf:*` label
+ * - Set status to Done
+ * - Clear delegate
+ * - Clear assignee
+ * - Comment required (audit trail)
+ */
+export async function closeAdhoc(
+  issueId: string,
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<SemanticResult> {
+  setProxyIntent("close-adhoc");
+  try {
+    return await executeTransition("closeAdhoc", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      targetState: "done",
+      commentMode: "required",
+      clearDelegate: true,
+      clearAssignee: true,
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
+}
+
+/**
  * linear demote <id>
  *
  * Demote a ticket out of the dev-impl workflow entirely.

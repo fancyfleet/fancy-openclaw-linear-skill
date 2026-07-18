@@ -31,6 +31,7 @@ import {
   escape,
   demote,
   complete,
+  closeAdhoc,
   parkWork,
   refuseWork,
 } from "../semantic";
@@ -787,6 +788,33 @@ describe("complete — proxy intent guard (AI-1392)", () => {
     await expect(complete("AI-200")).rejects.toThrow("API error");
     const lastCall = mockSetProxyIntent.mock.calls[mockSetProxyIntent.mock.calls.length - 1];
     expect(lastCall[0]).toBeUndefined();
+  });
+});
+
+describe("closeAdhoc — proxy intent guard (INF-63)", () => {
+  const closeOpts = { comment: "Closing as resolved. INF-63." };
+
+  it("sets intent to 'close-adhoc' so the proxy can reject workflow tickets", async () => {
+    await closeAdhoc("AI-200", closeOpts);
+    expectIntentSetAndCleared("close-adhoc");
+  });
+
+  it("clears intent even when executeTransition throws", async () => {
+    mockUpdateIssue.mockRejectedValueOnce(new Error("API error"));
+    await expect(closeAdhoc("AI-200", closeOpts)).rejects.toThrow("API error");
+    const lastCall = mockSetProxyIntent.mock.calls[mockSetProxyIntent.mock.calls.length - 1];
+    expect(lastCall[0]).toBeUndefined();
+  });
+
+  it("requires a comment for audit trail", async () => {
+    // closeAdhoc sets commentMode: "required", so executeTransition should
+    // reject calls without --comment or --comment-file.
+    // The rejection comes from executeTransition's requireComment check.
+    mockGetIssue.mockResolvedValue({ id: "AI-200", identifier: "AI-200", title: "Test", team: { id: "team-1" }, labels: [] });
+    mockGetSelfUser.mockResolvedValue({ id: "self-1", name: "Test Agent" });
+    mockFindSemanticState.mockResolvedValue({ id: "state-done", name: "Done" });
+    // When no comment and no commentFile, executeTransition should throw
+    await expect(closeAdhoc("AI-200", {})).rejects.toThrow(/comment/);
   });
 });
 
