@@ -647,6 +647,19 @@ export async function findUserByName(name: string): Promise<{ id: string; name: 
     return exact;
   }
 
+  // Prefix match: query string matches start of a display name (e.g., "signe" → "Signe (UX Researcher)")
+  // This ensures a short-name slug wins over accidental substring matches (e.g., "designer" containing "signe").
+  const lc = name.toLowerCase();
+  const prefixMatches = data.users.nodes.filter((user) => user.name.toLowerCase().startsWith(lc));
+  if (prefixMatches.length === 1) {
+    return prefixMatches[0];
+  }
+  if (prefixMatches.length > 1) {
+    // Multiple users share the same prefix — treat as ambiguous
+    const candidates = prefixMatches.map((u) => u.name);
+    throw new Error(`Could not uniquely resolve Linear user "${name}". Possible matches: ${candidates.join(", ")}`);
+  }
+
   if (data.users.nodes.length === 1) {
     return data.users.nodes[0];
   }

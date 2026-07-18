@@ -489,6 +489,30 @@ describe("findUserByName", () => {
   });
 });
 
+  // INF-81: prefix match resolves "signe" → "Signe (UX Researcher)" even when
+  // "Penny (UI Designer)" is also returned by the containsIgnoreCase query
+  it("resolves by prefix match when substring collision exists (INF-81)", async () => {
+    mockedGraphQL.mockResolvedValue({
+      users: { nodes: [
+        { id: "u-penny", name: "Penny (UI Designer)" },
+        { id: "u-signe", name: "Signe (UX Researcher)" }
+      ] }
+    });
+    const user = await findUserByName("signe");
+    expect(user.id).toBe("u-signe");
+  });
+
+  // INF-81: prefix match throws when multiple users share the same prefix
+  it("throws on multiple prefix matches when no exact match", async () => {
+    mockedGraphQL.mockResolvedValue({
+      users: { nodes: [
+        { id: "u-sig1", name: "Sigourney" },
+        { id: "u-sig2", name: "Signe (UX Researcher)" }
+      ] }
+    });
+    await expect(findUserByName("sig")).rejects.toThrow("Could not uniquely resolve");
+  });
+
 describe("rewriteIssueLinks", () => {
   const KEY = "fancymatt";
 
