@@ -60,6 +60,8 @@ export interface ObserveResult {
   createdAt: string;
   state: { name: string };
   priority: number;
+  trashed?: boolean;
+  archivedAt?: string | null;
   assignee: { name: string } | null;
   delegate: { name: string } | null;
   labels: Array<{ name: string; color?: string | null }>;
@@ -128,6 +130,8 @@ export async function observeIssue(
     createdAt: issue.createdAt ?? "",
     state: { name: issue.state?.name ?? "Unknown" },
     priority: issue.priority ?? 0,
+    trashed: issue.trashed,
+    archivedAt: issue.archivedAt,
     assignee: issue.assignee ? { name: issue.assignee.name } : null,
     delegate: issue.delegate ? { name: issue.delegate.name } : null,
     labels: (issue.labels ?? []).map((l) => ({ name: l.name, color: l.color })),

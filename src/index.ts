@@ -158,6 +158,13 @@ function renderTimeline(data: ObserveResult): string {
   const lines: string[] = [];
   const sep = "─".repeat(56);
 
+  // Trashed banner — show before everything else
+  if (data.trashed) {
+    const archiveSuffix = data.archivedAt ? ` (archived: ${data.archivedAt})` : "";
+    lines.push("⚠️  TRASHED (soft-deleted) — all writes will fail" + archiveSuffix);
+    lines.push("");
+  }
+
   // Header
   lines.push(`${data.identifier} | ${data.title}`);
   const metaParts = [`State: ${data.state.name}`, `Priority: ${data.priority}`];

@@ -97,6 +97,8 @@ export interface Issue {
   updatedAt?: string | null;
   createdAt?: string | null;
   url?: string;
+  trashed?: boolean;
+  archivedAt?: string | null;
   team?: {
     id: string;
     key?: string;
