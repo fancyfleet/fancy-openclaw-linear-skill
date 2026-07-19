@@ -838,6 +838,7 @@ interface ReadStateResponse {
       name: string;
       type: string;
     };
+    trashed: boolean;
   } | null;
 }
 
@@ -854,12 +855,13 @@ interface ReadLastCommentResponse {
   } | null;
 }
 
-export async function readState(id: string): Promise<{ name: string; type: string }> {
+export async function readState(id: string): Promise<{ name: string; type: string; trashed: boolean }> {
   const data = await linearGraphQL<ReadStateResponse>(
     `
       query ReadState($id: String!) {
         issue(id: $id) {
           state { name type }
+          trashed
         }
       }
     `,
@@ -870,7 +872,11 @@ export async function readState(id: string): Promise<{ name: string; type: strin
     throw new Error(`Issue not found: ${id}`);
   }
 
-  return data.issue.state;
+  return {
+    name: data.issue.state.name,
+    type: data.issue.state.type,
+    trashed: data.issue.trashed ?? false
+  };
 }
 
 export async function readLastComment(id: string): Promise<{
