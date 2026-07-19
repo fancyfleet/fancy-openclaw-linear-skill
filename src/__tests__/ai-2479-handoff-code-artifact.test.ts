@@ -220,35 +220,32 @@ describe("handoff-work --code-artifact — transmitting the declaration", () => 
   });
 });
 
-describe("handoff-work — never sets a proxy intent", () => {
-  // THE load-bearing test in this file, and the reason it exists:
-  //
-  // Every other semantic verb sets an intent, so making handoff-work "match its
-  // siblings" reads as an obvious tidy-up. It is fleet-breaking. No workflow def
-  // declares handoff-work as a transition, and the connector hard-refuses an
-  // intent no transition declares ("'X' is not a legal command in state 'Y'") —
-  // so setting one strands EVERY handoff on EVERY wf:* ticket simultaneously.
-  // handoff-work is intent-free by design and is governed instead by the
-  // connector's raw delegate-change interception (AI-1535 / AI-1835).
-  //
-  // If this test ever goes red, the fix is to delete the setProxyIntent call,
-  // not to update the assertion.
+describe("handoff-work — sets proxy intent on dev-impl governed tickets", () => {
+  // INF-93 (AI-2595 follow-up): handoff-work on dev-impl governed tickets now
+  // sets proxy intent "handoff" so the connector routes through checkWorkflowRules
+  // → applyStateTransition. The dev-impl workflow definition declares a `handoff`
+  // self-loop transition from `implementation` state, so the intent is legal;
+  // applyStateTransition's self-loop delegate-semantics (AI-2595 AC2) writes the
+  // delegate atomically. Non-dev-impl handoffs remain intent-free.
   it.each([
     ["plain", {}],
     ["with an artifact", { codeArtifact: ARTIFACT }],
     ["with a review handoff", { reviewHandoff: true }],
-  ])("sets no intent (%s)", async (_label, extra) => {
+  ])("sets no intent on non-dev-impl handoffs (%s)", async (_label, extra) => {
     await handoffWork("AI-2479", "Ai", { comment: "c", ...extra });
 
     expect(mockSetProxyIntent).not.toHaveBeenCalled();
   });
 
-  it("sets no intent on the dev-impl owner-change path", async () => {
+  it("sets intent 'handoff' on the dev-impl owner-change path", async () => {
     mockGetIssue.mockResolvedValue(devImplIssue as never);
+    mockSetProxyIntent.mockClear();
 
     await handoffWork("AI-2479", "Ai", { comment: "c", codeArtifact: ARTIFACT });
 
-    expect(mockSetProxyIntent).not.toHaveBeenCalled();
+    // Called with "handoff", then cleaned up with undefined in .finally()
+    expect(mockSetProxyIntent).toHaveBeenNthCalledWith(1, "handoff");
+    expect(mockSetProxyIntent).toHaveBeenNthCalledWith(2, undefined);
   });
 });
 

@@ -416,21 +416,17 @@ export async function handoffWork(
     .map((l) => l.name.toLowerCase())
     .find((n) => n in DEV_IMPL_STATE_TARGET);
 
-  // AI-2479: deliberately NOT setProxyIntent("handoff-work").
-  //
-  // Every sibling verb sets an intent, and making this one match looks like an
-  // obvious tidy-up. It is fleet-breaking. No workflow def declares handoff-work
-  // as a transition, and an intent that no transition declares is a hard refusal
-  // on a governed ticket (workflow-gate.ts: "'X' is not a legal command in state
-  // 'Y'") — so setting it would strand every handoff on every wf:* ticket, in
-  // every state, at once. handoff-work is intentionally intent-free: it falls
-  // through to the connector's raw-mutation interception, which already applies
-  // the correct delegate-only semantics (AI-1535, AI-1835). The artifact guard is
-  // enforced there, on the delegate-change shape, for exactly this reason.
+  // AI-2595: set proxy intent "handoff" on dev-impl governed tickets. The dev-impl
+  // workflow now declares a `handoff` self-loop transition from `implementation`
+  // state (AI-2595 AC2 + INF-93), so the intent routes through checkWorkflowRules
+  // → applyStateTransition, where the self-loop delegate-semantics code writes the
+  // delegate atomically (data-loss-safe, label-preserving). Non-dev-impl handoffs
+  // remain intent-free (the connector's raw-mutation interception handles them).
   if (artifact) setProxyCodeArtifact(formatCodeArtifact(artifact));
   if (options?.substitutionReason) setProxySubstitutionReason(options.substitutionReason);
   try {
   if (activeStateLabel && !options?.reviewHandoff) {
+    setProxyIntent("handoff");
     return await executeTransition("handoffWork", {
       issueId,
       comment,
@@ -447,10 +443,14 @@ export async function handoffWork(
       requireAppUserDelegate: true,
       commentFirst: true,
       omitStateId: true,
+      // AI-2595: self-loop (source === destination) — state:* labels don't change,
+      // so skip the post-transition label-verify check. The delegate persistence
+      // check (executeTransition step 11) still verifies the write landed.
+      skipPostTransitionVerify: true,
       // Intentionally NOT clearing assignee and NOT stripping the state:* label:
       // sending assigneeId/labelIds would trip the proxy's raw-mutation block and
       // dropping the label is exactly the regression this fixes.
-    });
+    }).finally(() => { setProxyIntent(undefined); });
   }
 
   return await executeTransition("handoffWork", {
