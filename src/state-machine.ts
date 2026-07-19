@@ -327,6 +327,14 @@ export interface StateTransition {
    */
   removeLabelsIfPresent?: string[];
   /**
+   * AI-2595: Skip the post-transition state-label verify check (step 10.5).
+   * Set on self-loop transitions (e.g. handoff-work from implementation→implementation)
+   * where the state:* labels don't change because source === destination. The delegate
+   * persistence check (step 11) still verifies the write landed.
+   */
+  skipPostTransitionVerify?: boolean;
+
+  /**
    * AI-1498: Do NOT write the native `stateId` in this transition's mutation.
    * Set on governed dev-impl verbs (accept/submit/approve/request-changes/deploy/
    * reject/escape/demote): the connector proxy is the SOLE atomic writer of the
@@ -849,7 +857,10 @@ export async function executeTransition(
   // exiting 0 with a half-triggered command (the AI-1767 stranding).
   // Proxy mode only: in direct-API mode the CLI writes labels itself and
   // updateIssue already throws on failure, so there is no silent path to catch.
-  if (config.omitStateId && process.env.LINEAR_PROXY_URL) {
+  // AI-2595: skip for self-loop transitions (e.g. handoff implementation→implementation)
+  // where state:* labels don't change because source === destination. The delegate
+  // persistence check (step 11) below still verifies the write landed.
+  if (config.omitStateId && process.env.LINEAR_PROXY_URL && !config.skipPostTransitionVerify) {
     const stateLabelSet = (labels?: { name: string }[]) =>
       (labels ?? [])
         .map((l) => l.name.toLowerCase())
