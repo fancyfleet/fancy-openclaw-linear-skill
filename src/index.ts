@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { checkAuth, linearDoctor } from "./auth";
 import { getMyBlocked } from "./blocked";
 import { getBoard, getRecentlyDone, getReviewQueue, getStalled } from "./boards";
-import { considerWork, refuseWork, beginWork, handoffWork, complete, duplicate, cancel, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, briefReady, filed, continueWorkflow, requestRevision, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, stewardTakeover } from "./semantic";
+import { considerWork, refuseWork, beginWork, handoffWork, complete, duplicate, cancel, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, briefReady, filed, continueWorkflow, requestRevision, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, transition, stewardTakeover } from "./semantic";
 import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, moveIssueTeam, readLastComment, readState, updateIssue, verifyComment } from "./issues";
 import { attachIssueToMilestone, attachIssueToProject, attachIssueToProjectById, createMilestone, createProject, editProject, findProjectByName, getProjectDetail, getProjectIssues, listMilestones, listProjects } from "./projects";
 import { createBlockingRelation, listRelations, removeBlockingRelation, removeParentIssue, setParentIssue } from "./relations";
@@ -1110,6 +1110,16 @@ async function main(): Promise<void> {
     .description("Demote a ticket out of dev-impl workflow (dev-impl: intake → ad-hoc)")
     .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
       await runCommand(async () => demote(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("transition").argument("<id>").argument("<move>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .option("--target <name>", "Optional delegate target for moves that route to a specific agent")
+    .description("Generic governed transition: send any named workflow move (e.g. hold, start-cycle) through the proxy. The proxy decides legality in the ticket's current state; dedicated verbs remain as aliases. (INF-204)")
+    .action(async (id: string, move: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }) => {
+      await runCommand(async () => transition(id, move, options), program.opts<{ human?: boolean }>().human);
     });
 
   // P4-2 — metric aggregation: surface ranked reason-code counts per step
