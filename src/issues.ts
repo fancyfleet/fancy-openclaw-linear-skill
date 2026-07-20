@@ -134,9 +134,21 @@ export async function getIssue(id: string): Promise<Issue> {
   return normalizeIssue(data.issue);
 }
 
+/**
+ * Team → default project mapping.
+ * When `linear create <team> <title>` is called without `--project`, the CLI
+ * auto-attaches the default project for teams listed here.
+ * Keys are Linear team UUIDs; values are Linear project UUIDs.
+ */
+const TEAM_DEFAULT_PROJECTS: Record<string, string> = {
+  // INF: all tickets auto-attach to "Fancy Openclaw Linear Connector"
+  "1519bfb2-fc64-4f4c-883c-0aeba9faf30a": "a6a0fd38-720f-42e8-9791-02682f44d269",
+};
+
 export async function createIssue(input: CreateIssueInput): Promise<Issue> {
   if (!input.projectId) {
-    process.stderr.write("Warning: no-orphan warning: creating issue without --project\n");
+    process.stderr.write("Warning: creating issue without --project — ticket is projectless. " +
+      "To avoid this, specify --project or configure a team-default project.\n");
   }
 
   // Without an explicit stateId, Linear's API silently lands the issue in Backlog

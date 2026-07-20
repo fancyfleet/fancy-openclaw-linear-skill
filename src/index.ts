@@ -463,6 +463,18 @@ async function main(): Promise<void> {
           const project = await findProjectByName(projectId);
           projectId = project.id;
         }
+        // Team-default projects: when no --project is given, auto-attach known teams.
+        // Must happen before the dry-run check so dry-run output is accurate.
+        if (!projectId && teamId) {
+          const TEAM_DEFAULT_PROJECTS: Record<string, string> = {
+            // INF: all tickets auto-attach to "Fancy Openclaw Linear Connector"
+            "1519bfb2-fc64-4f4c-883c-0aeba9faf30a": "a6a0fd38-720f-42e8-9791-02682f44d269",
+          };
+          const defaultProjectId = TEAM_DEFAULT_PROJECTS[teamId];
+          if (defaultProjectId) {
+            projectId = defaultProjectId;
+          }
+        }
         // Default to "todo" so the CLI matches its --help text. Without this,
         // Linear's API silently demotes issues to Backlog when no project is set,
         // and the connector won't auto-dispatch them. See AI-1097.
