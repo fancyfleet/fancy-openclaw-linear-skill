@@ -674,13 +674,19 @@ export async function executeTransition(
   //   • { delegateId: app_user, assigneeId: app_user } → explicit API error
   //   • { delegateId: app_user, assigneeId: <human> } → explicit API error
   //   • { delegateId: app_user }                      → valid; assignee left unchanged
-  // When the delegate is an app user with a specific (non-null) assigneeId,
-  // omit assigneeId entirely so Linear accepts the write.
-  if (delegateId && delegateIsAppUser && assigneeId !== null) {
+  //
+  // INF-234: when the delegate is an app user and no explicit assigneeId was
+  // requested (assigneeId === undefined), send assigneeId:null explicitly rather
+  // than omitting it. This clears the old human assignee when an agent delegate
+  // is set, matching handoff.ts (AI-2432 follow-up). The old guard was
+  // conservative (omit to satisfy Linear), but Linear accepts
+  // { delegateId: app_user, assigneeId: null } — null means "clear," not
+  // "set to app user."
+  if (delegateId && delegateIsAppUser && assigneeId === undefined) {
     process.stderr.write(
-      `Info: delegate "${delegateName}" is an app user; omitting assigneeId from mutation to satisfy Linear API constraint (AI-1395).\n`
+      `Info: delegate "${delegateName}" is an app user; sending assigneeId:null to clear assignee (INF-234).\n`
     );
-    assigneeId = undefined;
+    assigneeId = null;
     assigneeNameResult = null;
   }
 
