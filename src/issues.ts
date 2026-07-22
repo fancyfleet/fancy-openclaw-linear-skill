@@ -687,15 +687,17 @@ const AGENT_SLUG_MAP: Record<string, string> = {
  * 1. Slug map lookup — expand known agent slugs to canonical display names
  * 2. Linear `containsIgnoreCase` query
  * 3. Exact case-insensitive match on display name
- * 4. Prefix match (single user's name starts with query)
- * 5. Single result fallback
- * 6. Error with candidates
+ * 4. Exact app-user shortname match on the original input
+ * 5. Prefix match (single user's name starts with query)
+ * 6. Single result fallback
+ * 7. Error with candidates
  */
 export async function findUserByName(name: string): Promise<{ id: string; name: string; email?: string | null; app?: boolean | null }> {
   // Step 1: Slug map expansion — resolve known agent slugs to canonical display names
   // before the API query, preventing prefix collisions like `ken` matching both
   // "Ken (Private Tutor)" and "Kenji (Game Director)".
-  const slugName = AGENT_SLUG_MAP[name.toLowerCase()];
+  const originalName = name;
+  const slugName = AGENT_SLUG_MAP[originalName.toLowerCase()];
   if (slugName) {
     name = slugName;
   }
@@ -718,6 +720,20 @@ export async function findUserByName(name: string): Promise<{ id: string; name: 
   const exact = data.users.nodes.find((user) => user.name.toLowerCase() === name.toLowerCase());
   if (exact) {
     return exact;
+  }
+
+  const normalizedShortName = originalName.trim().toLowerCase();
+  const appShortNameMatches = data.users.nodes.filter((user) => {
+    if (user.app !== true) return false;
+    const firstToken = user.name.trim().split(/\s+/)[0]?.toLowerCase();
+    return firstToken === normalizedShortName;
+  });
+  if (appShortNameMatches.length === 1) {
+    return appShortNameMatches[0];
+  }
+  if (appShortNameMatches.length > 1) {
+    const candidates = appShortNameMatches.map((u) => u.name);
+    throw new Error(`Could not uniquely resolve Linear user "${originalName}". Possible matches: ${candidates.join(", ")}`);
   }
 
   // Prefix match: query string matches start of a display name (e.g., "signe" → "Signe (UX Researcher)")
