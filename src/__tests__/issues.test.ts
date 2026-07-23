@@ -476,6 +476,31 @@ describe("findUserByName", () => {
     expect(user.id).toBe("u-2");
   });
 
+  it("prefers an exact app-user shortname before fuzzy fallback", async () => {
+    mockedGraphQL.mockResolvedValue({
+      users: {
+        nodes: [
+          { id: "u-penny", name: "Penny (UI Designer)", app: true },
+          { id: "u-signe", name: "Signe (UX Research)", app: true }
+        ]
+      }
+    });
+    const user = await findUserByName("signe");
+    expect(user.id).toBe("u-signe");
+  });
+
+  it("keeps app-user shortname collisions ambiguous", async () => {
+    mockedGraphQL.mockResolvedValue({
+      users: {
+        nodes: [
+          { id: "u-signe-a", name: "Signe (UX Research)", app: true },
+          { id: "u-signe-b", name: "Signe (Research Backup)", app: true }
+        ]
+      }
+    });
+    await expect(findUserByName("signe")).rejects.toThrow("Could not uniquely resolve");
+  });
+
   it("throws when no users found", async () => {
     mockedGraphQL.mockResolvedValue({ users: { nodes: [] } });
     await expect(findUserByName("nobody")).rejects.toThrow("Could not uniquely resolve");
