@@ -25,6 +25,7 @@ import {
   handoffHostDeploy,
   hostDeployed,
   continueWorkflow,
+  forceDeploy,
   validated,
   acFail,
   reject,
@@ -329,6 +330,21 @@ describe("dev-impl semantic verbs", () => {
   describe("deploy (AI-1872: DEPRECATED — use continue-workflow)", () => {
     it("throws with 'continue-workflow' hint when called", async () => {
       await expect(deploy("AI-200")).rejects.toThrow(/continue-workflow/i);
+    });
+  });
+
+  describe("forceDeploy (INF-522: evidence-gate bypass)", () => {
+    it("sets the exact force-deploy proxy intent and writes no direct state or label facets", async () => {
+      await forceDeploy("AI-200", { comment: "PR merge verified out-of-band; advancing through false-negative gate." });
+      expectIntentSetAndCleared("force-deploy");
+      const call = mockUpdateIssue.mock.calls[0][1] as any;
+      expect(call.stateId).toBeUndefined();
+      expect(call.addedLabelIds).toBeUndefined();
+      expect(call.removedLabelIds).toBeUndefined();
+    });
+
+    it("requires a comment because this bypass is auditable", async () => {
+      await expect(forceDeploy("AI-200")).rejects.toThrow("force-deploy requires a non-empty comment");
     });
   });
 

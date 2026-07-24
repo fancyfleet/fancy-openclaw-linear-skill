@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { checkAuth, linearDoctor } from "./auth";
 import { getMyBlocked } from "./blocked";
 import { getBoard, getRecentlyDone, getReviewQueue, getStalled } from "./boards";
-import { considerWork, refuseWork, beginWork, handoffWork, complete, duplicate, cancel, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, briefReady, filed, continueWorkflow, requestRevision, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, transition, stewardTakeover } from "./semantic";
+import { considerWork, refuseWork, beginWork, handoffWork, complete, duplicate, cancel, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, briefReady, filed, continueWorkflow, forceDeploy, requestRevision, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, transition, stewardTakeover } from "./semantic";
 import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, moveIssueTeam, readLastComment, readState, updateIssue, verifyComment } from "./issues";
 import { attachIssueToMilestone, attachIssueToProject, attachIssueToProjectById, createMilestone, createProject, editProject, findProjectByName, getProjectDetail, getProjectIssues, listMilestones, listProjects } from "./projects";
 import { createBlockingRelation, listRelations, removeBlockingRelation, removeParentIssue, setParentIssue } from "./relations";
@@ -1006,6 +1006,15 @@ async function main(): Promise<void> {
     .description("Generic forward transition: proxy resolves to the `generic: continue` command for the current workflow state (e.g. brief-ready, submit, approve, filed)")
     .action(async (id: string, target: string | undefined, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
       await runCommand(async () => continueWorkflow(id, target, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("force-deploy").argument("<id>")
+    .option("--comment <msg>", "Reason for bypassing the PR evidence gate (required). " + INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .description("Force the merge/deploy forward transition when PR evidence is known-good but unavailable to the gate")
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+      await runCommand(async () => forceDeploy(id, options), program.opts<{ human?: boolean }>().human);
     });
 
   program.command("request-revision").argument("<id>")

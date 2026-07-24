@@ -1234,6 +1234,33 @@ export async function continueWorkflow(
 }
 
 /**
+ * linear force-deploy <id>
+ *
+ * Emergency forward command for merge/deploy evidence-gate false negatives.
+ * The connector proxy treats this exact intent as a reviewed bypass of PR
+ * evidence checks, while still applying the normal workflow transition.
+ */
+export async function forceDeploy(
+  issueId: string,
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<SemanticResult> {
+  setProxyIntent("force-deploy");
+  try {
+    return await executeTransition("force-deploy", {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
+    }, {
+      commentMode: "required",
+      omitStateId: true,
+    });
+  } finally {
+    setProxyIntent(undefined);
+  }
+}
+
+/**
  * linear request-revision <id>
  *
  * Generic "send back" command. The proxy resolves this to the actual workflow
