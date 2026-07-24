@@ -24,7 +24,7 @@
  */
 
 import { getIssue, updateIssue, addComment, resolveUserWithHints } from "../issues";
-import { setProxyIntent, setProxyTarget } from "../client";
+import { setProxyIntent, setProxyTarget, setProxyBreakGlass } from "../client";
 import { transition } from "../semantic";
 
 jest.mock("../client", () => ({
@@ -32,6 +32,7 @@ jest.mock("../client", () => ({
   linearGraphQL: jest.fn(),
   setProxyIntent: jest.fn(),
   setProxyTarget: jest.fn(),
+  setProxyBreakGlass: jest.fn(),
 }));
 
 jest.mock("../issues", () => ({
@@ -59,6 +60,7 @@ const mockUpdateIssue = updateIssue as jest.MockedFunction<typeof updateIssue>;
 const mockAddComment = addComment as jest.MockedFunction<typeof addComment>;
 const mockSetProxyIntent = setProxyIntent as jest.MockedFunction<typeof setProxyIntent>;
 const mockSetProxyTarget = setProxyTarget as jest.MockedFunction<typeof setProxyTarget>;
+const mockSetProxyBreakGlass = setProxyBreakGlass as jest.MockedFunction<typeof setProxyBreakGlass>;
 const mockResolveUser = resolveUserWithHints as jest.MockedFunction<typeof resolveUserWithHints>;
 
 // UUID deliberately ≠ identifier (the AI-2357 lesson).
@@ -172,6 +174,17 @@ describe("INF-204: linear transition <id> <move>", () => {
 
     expect(mockSetProxyTarget).toHaveBeenCalledWith("Mckell (CMO)");
     const calls = mockSetProxyTarget.mock.calls;
+    expect(calls[calls.length - 1]).toEqual([undefined]);
+  });
+});
+
+describe("INF-482: linear transition <id> <move> --break-glass", () => {
+  it("sets the proxy break-glass header and clears it after", async () => {
+    await transition("LIF-143", "escape", { breakGlass: true });
+
+    expect(mockSetProxyBreakGlass).toHaveBeenCalledWith(true);
+    // Cleared in the finally — last call must be the reset.
+    const calls = mockSetProxyBreakGlass.mock.calls;
     expect(calls[calls.length - 1]).toEqual([undefined]);
   });
 });
