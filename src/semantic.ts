@@ -18,7 +18,7 @@ import {
 import { setProxyIntent, setProxyTarget, setProxyCodeArtifact, setProxySubstitutionReason, setProxyBreakGlass } from "./client";
 import { getComments, getIssueHistory } from "./boards";
 import { getSelfUser } from "./auth";
-import { addComment, getIssue, resolveUserWithHints, updateIssue } from "./issues";
+import { addComment, getIssue, resolveAgentSlugForDisplayName, resolveUserWithHints, updateIssue } from "./issues";
 import { createDuplicateRelation } from "./relations";
 import { findStateByType } from "./states";
 import { resolveLabelIds } from "./labels";
@@ -449,7 +449,7 @@ export async function handoffWork(
   try {
   if (governedStateLabel && !options?.reviewHandoff) {
     setProxyIntent("handoff");
-    setProxyTarget(delegateName);
+    setProxyTarget(resolveAgentSlugForDisplayName(delegateName));
     return await executeTransition("handoffWork", {
       issueId,
       comment,

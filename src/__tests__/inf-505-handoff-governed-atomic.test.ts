@@ -46,6 +46,7 @@ jest.mock("../auth", () => ({
 }));
 
 jest.mock("../issues", () => ({
+  ...jest.requireActual("../issues"),
   addComment: jest.fn(),
   findUserByName: jest.fn(),
   resolveUserWithHints: jest.fn(),
@@ -138,10 +139,10 @@ describe("INF-505 — governed non-dev-impl handoff routes through the proxy int
   it("forwards the explicit worker target for multi-body task roles", async () => {
     await handoffWork("INF-497", "Igor (Back End Dev)", { comment: "Deploy is yours — merge + AC5." });
 
-    // `task.yaml` resolves `worker` through a multi-body role. Without X-Openclaw-Target
-    // the connector falls back to role resolution and fail-closes with
-    // "multi-body role 'worker' requires a --target".
-    expect(mockSetProxyTarget).toHaveBeenNthCalledWith(1, "Igor (Back End Dev)");
+    // `task.yaml` resolves `worker` through a multi-body role. Without
+    // X-Openclaw-Target as the roster body key, the connector falls back to role
+    // resolution and fail-closes with "multi-body role 'worker' requires a --target".
+    expect(mockSetProxyTarget).toHaveBeenNthCalledWith(1, "igor");
     expect(mockSetProxyTarget).toHaveBeenLastCalledWith(undefined);
   });
 

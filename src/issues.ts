@@ -680,6 +680,13 @@ const AGENT_SLUG_MAP: Record<string, string> = {
   yoshi: "Yoshi (ILL Liason)",
 };
 
+export function resolveAgentSlugForDisplayName(name: string): string {
+  const normalized = name.trim().toLowerCase();
+  if (AGENT_SLUG_MAP[normalized]) return normalized;
+  const match = Object.entries(AGENT_SLUG_MAP).find(([, displayName]) => displayName.toLowerCase() === normalized);
+  return match?.[0] ?? name;
+}
+
 /**
  * Resolve a name to a Linear user.
  *
