@@ -15,7 +15,7 @@ import {
   isMattTarget,
   logRefusal,
 } from "./matt-escalation-guard";
-import { setProxyIntent, setProxyTarget, setProxyCodeArtifact, setProxySubstitutionReason } from "./client";
+import { setProxyIntent, setProxyTarget, setProxyCodeArtifact, setProxySubstitutionReason, setProxyBreakGlass } from "./client";
 import { getComments, getIssueHistory } from "./boards";
 import { getSelfUser } from "./auth";
 import { addComment, getIssue, resolveUserWithHints, updateIssue } from "./issues";
@@ -1643,13 +1643,15 @@ export async function demote(
  * the connector but had no CLI wrapper, so dispatch messages advertised
  * commands agents could not run and governed tickets got stuck re-dispatching.
  * This verb closes that class of gap: new connector moves need no CLI release.
+ *
+ * INF-482: added --break-glass support for emergency recovery.
  */
 const MOVE_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 export async function transition(
   issueId: string,
   move: string,
-  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string; breakGlass?: boolean }
 ): Promise<SemanticResult> {
   if (!MOVE_NAME_PATTERN.test(move)) {
     throw new Error(
@@ -1665,6 +1667,9 @@ export async function transition(
   }
   setProxyTarget(options?.target);
   setProxyIntent(move);
+  if (options?.breakGlass) {
+    setProxyBreakGlass(true);
+  }
   try {
     return await executeTransition(move, {
       issueId,
@@ -1680,5 +1685,6 @@ export async function transition(
   } finally {
     setProxyIntent(undefined);
     setProxyTarget(undefined);
+    setProxyBreakGlass(undefined);
   }
 }

@@ -1112,16 +1112,6 @@ async function main(): Promise<void> {
       await runCommand(async () => demote(id, options), program.opts<{ human?: boolean }>().human);
     });
 
-  program.command("transition").argument("<id>").argument("<move>")
-    .option("--comment <msg>", INLINE_COMMENT_HELP)
-    .option("--comment-file <path>", "Read comment from file")
-    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
-    .option("--target <name>", "Optional delegate target for moves that route to a specific agent")
-    .description("Generic governed transition: send any named workflow move (e.g. hold, start-cycle) through the proxy. The proxy decides legality in the ticket's current state; dedicated verbs remain as aliases. (INF-204)")
-    .action(async (id: string, move: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }) => {
-      await runCommand(async () => transition(id, move, options), program.opts<{ human?: boolean }>().human);
-    });
-
   // P4-2 — metric aggregation: surface ranked reason-code counts per step
   program.command("metrics")
     .option("--workflow <workflow>", "Filter by workflow (e.g. dev-impl)")
