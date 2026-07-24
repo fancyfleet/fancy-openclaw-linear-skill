@@ -327,6 +327,14 @@ export interface StateTransition {
    */
   removeLabelsIfPresent?: string[];
   /**
+   * AI-2595: Skip the post-transition state-label verify check (step 10.5).
+   * Set on self-loop transitions (e.g. handoff-work from implementation→implementation)
+   * where the state:* labels don't change because source === destination. The delegate
+   * persistence check (step 11) still verifies the write landed.
+   */
+  skipPostTransitionVerify?: boolean;
+
+  /**
    * AI-1498: Do NOT write the native `stateId` in this transition's mutation.
    * Set on governed dev-impl verbs (accept/submit/approve/request-changes/deploy/
    * reject/escape/demote): the connector proxy is the SOLE atomic writer of the
@@ -666,13 +674,19 @@ export async function executeTransition(
   //   • { delegateId: app_user, assigneeId: app_user } → explicit API error
   //   • { delegateId: app_user, assigneeId: <human> } → explicit API error
   //   • { delegateId: app_user }                      → valid; assignee left unchanged
-  // When the delegate is an app user with a specific (non-null) assigneeId,
-  // omit assigneeId entirely so Linear accepts the write.
-  if (delegateId && delegateIsAppUser && assigneeId !== null) {
+  //
+  // INF-234: when the delegate is an app user and no explicit assigneeId was
+  // requested (assigneeId === undefined), send assigneeId:null explicitly rather
+  // than omitting it. This clears the old human assignee when an agent delegate
+  // is set, matching handoff.ts (AI-2432 follow-up). The old guard was
+  // conservative (omit to satisfy Linear), but Linear accepts
+  // { delegateId: app_user, assigneeId: null } — null means "clear," not
+  // "set to app user."
+  if (delegateId && delegateIsAppUser && assigneeId === undefined) {
     process.stderr.write(
-      `Info: delegate "${delegateName}" is an app user; omitting assigneeId from mutation to satisfy Linear API constraint (AI-1395).\n`
+      `Info: delegate "${delegateName}" is an app user; sending assigneeId:null to clear assignee (INF-234).\n`
     );
-    assigneeId = undefined;
+    assigneeId = null;
     assigneeNameResult = null;
   }
 
@@ -849,7 +863,10 @@ export async function executeTransition(
   // exiting 0 with a half-triggered command (the AI-1767 stranding).
   // Proxy mode only: in direct-API mode the CLI writes labels itself and
   // updateIssue already throws on failure, so there is no silent path to catch.
-  if (config.omitStateId && process.env.LINEAR_PROXY_URL) {
+  // AI-2595: skip for self-loop transitions (e.g. handoff implementation→implementation)
+  // where state:* labels don't change because source === destination. The delegate
+  // persistence check (step 11) below still verifies the write landed.
+  if (config.omitStateId && process.env.LINEAR_PROXY_URL && !config.skipPostTransitionVerify) {
     const stateLabelSet = (labels?: { name: string }[]) =>
       (labels ?? [])
         .map((l) => l.name.toLowerCase())

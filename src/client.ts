@@ -85,6 +85,27 @@ export function setProxyCommentSatisfiedBy(commentId: string | undefined): void 
 }
 
 /**
+ * AI-2479: the code artifact (`<branch>@<sha>`) a handoff declares, and an
+ * optional reason for declaring one that differs from the artifact the caller
+ * was handed. The proxy compares the declaration against the ticket's recorded
+ * disclosure and refuses an undeclared substitution.
+ *
+ * These are advisory in the CLI and enforced in the connector, deliberately: the
+ * CLI is the component being bypassed, so only the proxy — which resolves the
+ * caller from an unforgeable OAuth token — can enforce anything here.
+ */
+let _proxyCodeArtifact: string | undefined;
+let _proxySubstitutionReason: string | undefined;
+
+export function setProxyCodeArtifact(artifact: string | undefined): void {
+  _proxyCodeArtifact = artifact;
+}
+
+export function setProxySubstitutionReason(reason: string | undefined): void {
+  _proxySubstitutionReason = reason;
+}
+
+/**
  * Extra headers to attach when routing through the proxy so it can identify
  * the calling agent for logging and enforcement (Phase 2, design.md §11).
  *
@@ -104,6 +125,14 @@ function proxyHeaders(): Record<string, string> {
   if (_proxyTarget) headers["X-Openclaw-Linear-Target"] = _proxyTarget;
   if (_proxyBreakGlass) headers["X-Openclaw-Break-Glass"] = "true";
   if (_proxyCommentSatisfiedBy) headers["X-Openclaw-Comment-Satisfied-By"] = _proxyCommentSatisfiedBy;
+  if (_proxyCodeArtifact) headers["X-Openclaw-Code-Artifact"] = _proxyCodeArtifact;
+  // Percent-encoded: the reason is agent-authored free text and routinely
+  // contains non-latin-1 characters (em-dashes, emoji). Node throws on a header
+  // value it cannot encode, which would turn a declared substitution — the
+  // sanctioned path — into a hard crash. The connector decodes it back.
+  if (_proxySubstitutionReason) {
+    headers["X-Openclaw-Substitution-Reason"] = encodeURIComponent(_proxySubstitutionReason);
+  }
   return headers;
 }
 
@@ -175,6 +204,29 @@ function enrichMessage(errors: GraphQLErrorDetail[]): string {
   return parts.join("\n");
 }
 
+/** Retry backoff intervals for ECONNREFUSED (ms). ~4.5s total window. */
+const ECONNREFUSED_RETRY_DELAYS = [500, 1000, 2000];
+
+/**
+ * True when the error is a network-level connection refusal — the target host
+ * is reachable but nothing is listening on the port (ECONNREFUSED). This is
+ * the signature of a deploy-restart gap on the connector proxy.
+ */
+function isConnectionRefused(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) return false;
+  // axios wraps ECONNREFUSED as a network error with no .response and no .status
+  if (error.response) return false;
+  const msg = (error.message ?? "").toLowerCase();
+  return msg.includes("econnrefused") || msg.includes("connect ec") || msg.includes("connection refused");
+}
+
+/**
+ * Sleep helper for retry backoff.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export class LinearApiError extends Error {
   code?: string;
   details?: GraphQLErrorDetail[];
@@ -187,60 +239,100 @@ export class LinearApiError extends Error {
   }
 }
 
+/**
+ * Execute one GraphQL request, returning the axios response or throwing.
+ */
+async function executeGraphQL<T>(
+  apiUrl: string,
+  query: string,
+  variables: Record<string, unknown> | undefined,
+  headers: Record<string, string>
+) {
+  return await axios.post<LinearGraphQLResponse<T>>(
+    apiUrl,
+    { query, variables },
+    { headers }
+  );
+}
+
 export async function linearGraphQL<T>(
   query: string,
   variables?: Record<string, unknown>
 ): Promise<T> {
   const apiKey = ensureApiKey();
   const apiUrl = resolveApiUrl();
-  let response;
-  try {
-    response = await axios.post<LinearGraphQLResponse<T>>(
-      apiUrl,
-      { query, variables },
-      {
-        headers: {
-          Authorization: apiKey,
-          "Content-Type": "application/json",
-          ...proxyHeaders(),
-        },
+  // Build headers once; they don't change across retries.
+  const headers: Record<string, string> = {
+    Authorization: apiKey,
+    "Content-Type": "application/json",
+    ...proxyHeaders(),
+  };
+  const maxAttempts = ECONNREFUSED_RETRY_DELAYS.length + 1;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await executeGraphQL<T>(apiUrl, query, variables, headers);
+
+      if (response.data.errors?.length) {
+        debugDump("GraphQL errors", response.data.errors);
+        throw new LinearApiError(
+          enrichMessage(response.data.errors),
+          "GRAPHQL_ERROR",
+          response.data.errors
+        );
       }
-    );
-  } catch (error) {
-    if (axios.isAxiosError(error)) {
-      if (error.response) {
-        const errors = (error.response.data?.errors ?? []) as GraphQLErrorDetail[];
-        if (error.response.status === 401) {
-          throw new LinearApiError("Unauthorized", "UNAUTHORIZED");
+
+      if (!response.data.data) {
+        throw new LinearApiError("Linear API returned no data.", "NO_DATA");
+      }
+
+      return response.data.data;
+    } catch (error) {
+      if (axios.isAxiosError(error)) {
+        if (error.response) {
+          // Server responded with an HTTP error — not a connection-refused flap.
+          // Throw immediately; retrying won't help.
+          const errors = (error.response.data?.errors ?? []) as GraphQLErrorDetail[];
+          if (error.response.status === 401) {
+            throw new LinearApiError("Unauthorized", "UNAUTHORIZED");
+          }
+          debugDump("HTTP error response", error.response.data);
+          const message = errors.length
+            ? enrichMessage(errors)
+            : `Linear API returned HTTP ${error.response.status}: ${error.response.statusText}`;
+          throw new LinearApiError(message, `HTTP_${error.response.status}`, errors);
         }
-        debugDump("HTTP error response", error.response.data);
-        const message = errors.length
-          ? enrichMessage(errors)
-          : `Linear API returned HTTP ${error.response.status}: ${error.response.statusText}`;
-        throw new LinearApiError(message, `HTTP_${error.response.status}`, errors);
+
+        // Network error with no response — could be ECONNREFUSED (deploy flap)
+        // or a genuine connectivity issue. Retry on connection-refused signals.
+        if (isConnectionRefused(error) && attempt < maxAttempts) {
+          const delay = ECONNREFUSED_RETRY_DELAYS[attempt - 1];
+          if (isDebugMode()) {
+            console.error(`[debug] ECONNREFUSED on attempt ${attempt}/${maxAttempts} — retrying in ${delay}ms`);
+          }
+          await sleep(delay);
+          lastError = error;
+          continue;
+        }
+
+        throw new LinearApiError(
+          `Network request to Linear API failed: ${error.message}. Check your internet connection and that api.linear.app is reachable.`,
+          "NETWORK_ERROR"
+        );
       }
-      throw new LinearApiError(
-        `Network request to Linear API failed: ${error.message}. Check your internet connection and that api.linear.app is reachable.`,
-        "NETWORK_ERROR"
-      );
+      throw error;
     }
-    throw error;
   }
 
-  if (response.data.errors?.length) {
-    debugDump("GraphQL errors", response.data.errors);
-    throw new LinearApiError(
-      enrichMessage(response.data.errors),
-      "GRAPHQL_ERROR",
-      response.data.errors
-    );
-  }
-
-  if (!response.data.data) {
-    throw new LinearApiError("Linear API returned no data.", "NO_DATA");
-  }
-
-  return response.data.data;
+  // Exhausted retries — surface the last connection-refused error with a clear message.
+  const msg = lastError instanceof Error
+    ? lastError.message
+    : String(lastError);
+  throw new LinearApiError(
+    `GraphQL request failed after ${maxAttempts} attempts: ${msg}. The connector proxy at ${apiUrl} may still be restarting or unreachable.`,
+    "NETWORK_ERROR"
+  );
 }
 
 export async function putPresignedFile(

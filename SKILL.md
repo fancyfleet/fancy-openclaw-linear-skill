@@ -80,6 +80,9 @@ linear manage <ID> --interval 2h      # Same, but set per-ticket wake cadence (m
 linear undelegate <ID>                # Clear delegate + assignee without changing status (optional --comment)
 linear note <ID> --comment "<msg>"    # Post comment only: no state, delegate, or assignee change
                                       # Works on any status (including Done/Canceled)
+linear transition <ID> <move>         # Generic governed workflow move (e.g. hold, start-cycle): sends the named
+                                      # move through the proxy, which decides legality in the current state.
+                                      # Use when a dispatch message names a move with no dedicated verb (INF-204).
 ```
 
 > **Note:** camelCase aliases (`considerWork`, `beginWork`, etc.) still work for backward compatibility but kebab-case is the standard.

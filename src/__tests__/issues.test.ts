@@ -76,12 +76,15 @@ describe("getIssue", () => {
   });
 
   it("fetches issue by identifier (e.g. AI-100)", async () => {
-    mockedGraphQL.mockResolvedValue({ issues: { nodes: [mockIssue] } });
+    mockedGraphQL.mockResolvedValue({ issue: mockIssue });
     const result = await getIssue("AI-100");
     expect(result.identifier).toBe("AI-100");
+    // An identifier goes to the same node query a UUID does, verbatim — see
+    // inf-29-getissue-node-query.test.ts for why the team+number filter this
+    // used to assert had to go.
     expect(mockedGraphQL).toHaveBeenCalledWith(
-      expect.stringContaining("IssueByIdentifier"),
-      { teamKey: "AI", number: 100 }
+      expect.stringContaining("issue(id: $id)"),
+      { id: "AI-100" }
     );
   });
 
@@ -91,7 +94,7 @@ describe("getIssue", () => {
   });
 
   it("throws when issue not found by identifier", async () => {
-    mockedGraphQL.mockResolvedValue({ issues: { nodes: [] } });
+    mockedGraphQL.mockResolvedValue({ issue: null });
     await expect(getIssue("ZZ-999")).rejects.toThrow("Issue not found");
   });
 });
@@ -473,6 +476,31 @@ describe("findUserByName", () => {
     expect(user.id).toBe("u-2");
   });
 
+  it("prefers an exact app-user shortname before fuzzy fallback", async () => {
+    mockedGraphQL.mockResolvedValue({
+      users: {
+        nodes: [
+          { id: "u-penny", name: "Penny (UI Designer)", app: true },
+          { id: "u-signe", name: "Signe (UX Research)", app: true }
+        ]
+      }
+    });
+    const user = await findUserByName("signe");
+    expect(user.id).toBe("u-signe");
+  });
+
+  it("keeps app-user shortname collisions ambiguous", async () => {
+    mockedGraphQL.mockResolvedValue({
+      users: {
+        nodes: [
+          { id: "u-signe-a", name: "Signe (UX Research)", app: true },
+          { id: "u-signe-b", name: "Signe (Research Backup)", app: true }
+        ]
+      }
+    });
+    await expect(findUserByName("signe")).rejects.toThrow("Could not uniquely resolve");
+  });
+
   it("throws when no users found", async () => {
     mockedGraphQL.mockResolvedValue({ users: { nodes: [] } });
     await expect(findUserByName("nobody")).rejects.toThrow("Could not uniquely resolve");
@@ -486,8 +514,83 @@ describe("findUserByName", () => {
   });
 });
 
+  // INF-81: prefix match resolves "signe" → "Signe (UX Researcher)" even when
+  // "Penny (UI Designer)" is also returned by the containsIgnoreCase query
+  it("resolves by prefix match when substring collision exists (INF-81)", async () => {
+    mockedGraphQL.mockResolvedValue({
+      users: { nodes: [
+        { id: "u-penny", name: "Penny (UI Designer)" },
+        { id: "u-signe", name: "Signe (UX Researcher)" }
+      ] }
+    });
+    const user = await findUserByName("signe");
+    expect(user.id).toBe("u-signe");
+  });
+
+  // INF-80: slug map resolves colliding prefixes (e.g. `ken` → "Ken (Private Tutor)")
+  // without hitting the prefix-ambiguity error. The slug is expanded to the full
+  // display name before the API query, so the exact-match path succeeds.
+  it("resolves known slug via AGENT_SLUG_MAP before API query", async () => {
+    mockedGraphQL.mockResolvedValue({
+      users: { nodes: [
+        { id: "u-ken", name: "Ken (Private Tutor)" },
+        { id: "u-kenji", name: "Kenji (Game Director)" }
+      ] }
+    });
+    const user = await findUserByName("ken");
+    expect(user.id).toBe("u-ken");
+    expect(user.name).toBe("Ken (Private Tutor)");
+  });
+
+  // INF-80: unknown slug falls through to normal prefix/single-result resolution
+  it("falls through to prefix match when slug is not in AGENT_SLUG_MAP", async () => {
+    mockedGraphQL.mockResolvedValue({
+      users: { nodes: [
+        { id: "u-whoami", name: "Whoami (Mysterious)" }
+      ] }
+    });
+    const user = await findUserByName("whoami");
+    expect(user.id).toBe("u-whoami");
+  });
+
+  // INF-80: prefix match throws when multiple users share the same prefix
+  // and neither is a known slug
+  it("throws on multiple prefix matches when no exact match", async () => {
+    mockedGraphQL.mockResolvedValue({
+      users: { nodes: [
+        { id: "u-sig1", name: "Sigourney" },
+        { id: "u-sig2", name: "Signe (UX Researcher)" }
+      ] }
+    });
+    await expect(findUserByName("sig")).rejects.toThrow("Could not uniquely resolve");
+  });
+
 describe("rewriteIssueLinks", () => {
   const KEY = "fancymatt";
+
+  // AI-2479: HTML comments carry machine-readable markers (e.g. the artifact
+  // disclosure record). Link-rewriting inside one silently corrupts the payload:
+  // a branch like "feature/AI-2476-gate" becomes
+  // "feature/[AI-2476](https://...)-gate", so the recorded branch no longer
+  // matches the real one and the guard mis-fires. HTML comments are invisible in
+  // rendered Markdown, so a link in there is never useful to a human either.
+  it("does not rewrite identifiers inside an HTML comment", () => {
+    const marker = '<!-- artifact-disclosure: {"branch":"feature/AI-2476-gate","sha":"b777e17"} -->';
+    expect(rewriteIssueLinks(marker, KEY)).toBe(marker);
+  });
+
+  it("preserves an HTML-comment marker while still rewriting prose around it", () => {
+    const marker = '<!-- artifact-disclosure: {"branch":"feature/AI-2476-gate"} -->';
+    const result = rewriteIssueLinks(`Handing AI-2479 to you.\n${marker}`, KEY);
+    expect(result).toBe(
+      `Handing [AI-2479](https://linear.app/fancymatt/issue/AI-2479) to you.\n${marker}`
+    );
+  });
+
+  it("does not rewrite inside a multi-line HTML comment", () => {
+    const marker = "<!--\n  artifact-disclosure: AI-2476\n-->";
+    expect(rewriteIssueLinks(marker, KEY)).toBe(marker);
+  });
 
   it("returns text unchanged when no identifiers present", () => {
     const text = "This is a plain comment with no refs.";

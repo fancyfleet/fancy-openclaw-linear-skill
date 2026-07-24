@@ -3,7 +3,7 @@
 ## Handoff to reviewer
 
 ```bash
-linear handoff AI-123 Astrid --comment-file /tmp/review.md
+linear handoff-work AI-123 Astrid --comment-file /tmp/review.md
 ```
 
 ## Create issue and attach to project
@@ -17,9 +17,15 @@ linear create AI "Title" --description "..." --project <project-id>
 ```bash
 ISSUE="AI-123"
 BRANCH="feature/ai-123-short-slug"
+
+# The base branch is repo-specific: some repos cut from main, others from
+# develop. Read the repo's own contributing docs and set it — do not copy a
+# base branch out of this example, and do not assume the one you used last.
+BASE="<the base branch this repo actually uses>"
+
 cd ~/Code/repo
-git checkout develop && git pull origin develop
-git worktree add .worktrees/${ISSUE,,} -b "$BRANCH" origin/develop
+git fetch origin
+git worktree add .worktrees/${ISSUE,,} -b "$BRANCH" "origin/$BASE"
 cd .worktrees/${ISSUE,,}
 # implement
 

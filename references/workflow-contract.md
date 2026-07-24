@@ -52,10 +52,9 @@ Task acknowledged, then no visible outcome.
 ## Good default commands
 
 ```bash
-linear issue AI-123
-linear comments AI-123
-linear status AI-123 review
-linear handoff AI-123 Astrid --comment-file /tmp/review.md
+linear observe-issue AI-123
+linear begin-work AI-123
+linear handoff-work AI-123 Astrid --comment-file /tmp/review.md
 ```
 
 ## Relationship to the connector

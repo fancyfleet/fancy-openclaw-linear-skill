@@ -6,7 +6,7 @@ import { Command } from "commander";
 import { checkAuth, linearDoctor } from "./auth";
 import { getMyBlocked } from "./blocked";
 import { getBoard, getRecentlyDone, getReviewQueue, getStalled } from "./boards";
-import { considerWork, refuseWork, beginWork, handoffWork, complete, duplicate, cancel, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, briefReady, filed, continueWorkflow, requestRevision, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, stewardTakeover } from "./semantic";
+import { considerWork, refuseWork, beginWork, handoffWork, complete, duplicate, cancel, needsHuman, observeIssue, note, undelegate, parkWork, manageWork, accept, testsReady, briefReady, filed, continueWorkflow, requestRevision, submit, approve, requestChanges, deploy, handoffHostDeploy, hostDeployed, validated, acFail, reject, escape, demote, transition, stewardTakeover } from "./semantic";
 import { addComment, createIssue, findUserByName, resolveUserWithHints, getIssue, getMyIssues, getMyManaging, getMyNewIssues, getMyQueue, moveIssueTeam, readLastComment, readState, updateIssue, verifyComment } from "./issues";
 import { attachIssueToMilestone, attachIssueToProject, attachIssueToProjectById, createMilestone, createProject, editProject, findProjectByName, getProjectDetail, getProjectIssues, listMilestones, listProjects } from "./projects";
 import { createBlockingRelation, listRelations, removeBlockingRelation, removeParentIssue, setParentIssue } from "./relations";
@@ -157,6 +157,13 @@ function renderPinnedComments(data: ObserveResult): string[] {
 function renderTimeline(data: ObserveResult): string {
   const lines: string[] = [];
   const sep = "─".repeat(56);
+
+  // Trashed banner — show before everything else
+  if (data.trashed) {
+    const archiveSuffix = data.archivedAt ? ` (archived: ${data.archivedAt})` : "";
+    lines.push("⚠️  TRASHED (soft-deleted) — all writes will fail" + archiveSuffix);
+    lines.push("");
+  }
 
   // Header
   lines.push(`${data.identifier} | ${data.title}`);
@@ -455,6 +462,18 @@ async function main(): Promise<void> {
         if (projectId && !projectId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
           const project = await findProjectByName(projectId);
           projectId = project.id;
+        }
+        // Team-default projects: when no --project is given, auto-attach known teams.
+        // Must happen before the dry-run check so dry-run output is accurate.
+        if (!projectId && teamId) {
+          const TEAM_DEFAULT_PROJECTS: Record<string, string> = {
+            // INF: all tickets auto-attach to "Fancy Openclaw Linear Connector"
+            "1519bfb2-fc64-4f4c-883c-0aeba9faf30a": "a6a0fd38-720f-42e8-9791-02682f44d269",
+          };
+          const defaultProjectId = TEAM_DEFAULT_PROJECTS[teamId];
+          if (defaultProjectId) {
+            projectId = defaultProjectId;
+          }
         }
         // Default to "todo" so the CLI matches its --help text. Without this,
         // Linear's API silently demotes issues to Backlog when no project is set,
@@ -895,7 +914,7 @@ async function main(): Promise<void> {
     await runCommand(async () => beginWork(id), program.opts<{ human?: boolean }>().human);
   });
 
-  program.command("handoff-work").alias("handoffWork").argument("<id>").argument("<delegate>", "agent display name in quotes, e.g. \"Astrid (CPO)\"").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").option("--force-matt-escalation", "Bypass Matt-escalation refusal guard (use only for legitimate escalations)").option("--review-handoff", "Mark as peer-review handoff: applies gate:agent-review label and prefixes comment with [Review Handoff]").description("Hand off task to another agent").action(async (id: string, delegate: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; forceMattEscalation?: boolean; reviewHandoff?: boolean }) => {
+  program.command("handoff-work").alias("handoffWork").argument("<id>").argument("<delegate>", "agent display name in quotes, e.g. \"Astrid (CPO)\"").option("--comment <msg>", INLINE_COMMENT_HELP).option("--comment-file <path>", "Read comment from file").option("--force-duplicate", "Bypass near-duplicate comment detection and force the post").option("--force-matt-escalation", "Bypass Matt-escalation refusal guard (use only for legitimate escalations)").option("--review-handoff", "Mark as peer-review handoff: applies gate:agent-review label and prefixes comment with [Review Handoff]").option("--code-artifact <branch@sha>", "Declare the code artifact this handoff is about, e.g. feature/AI-2479-guard@c81dfe0. Recorded on the ticket; the proxy refuses an undeclared substitution at the next handoff.").option("--substitution-reason <text>", "Declare why --code-artifact differs from the artifact you were handed (the sanctioned, non-silent path for a legitimate swap)").description("Hand off task to another agent").action(async (id: string, delegate: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; forceMattEscalation?: boolean; reviewHandoff?: boolean; codeArtifact?: string; substitutionReason?: string }) => {
     await runCommand(async () => handoffWork(id, delegate, options), program.opts<{ human?: boolean }>().human);
   });
 
@@ -1091,6 +1110,16 @@ async function main(): Promise<void> {
     .description("Demote a ticket out of dev-impl workflow (dev-impl: intake → ad-hoc)")
     .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
       await runCommand(async () => demote(id, options), program.opts<{ human?: boolean }>().human);
+    });
+
+  program.command("transition").argument("<id>").argument("<move>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .option("--target <name>", "Optional delegate target for moves that route to a specific agent")
+    .description("Generic governed transition: send any named workflow move (e.g. hold, start-cycle) through the proxy. The proxy decides legality in the ticket's current state; dedicated verbs remain as aliases. (INF-204)")
+    .action(async (id: string, move: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }) => {
+      await runCommand(async () => transition(id, move, options), program.opts<{ human?: boolean }>().human);
     });
 
   // P4-2 — metric aggregation: surface ranked reason-code counts per step

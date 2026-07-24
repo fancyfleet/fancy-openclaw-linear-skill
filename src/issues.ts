@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { linearGraphQL } from "./client";
+import { linearGraphQL, LinearApiError } from "./client";
 import { getSelfUser } from "./auth";
 import { ISSUE_FIELDS, STATE_BLOCK, ASSIGNEE_BLOCK, TEAM_BLOCK, DELEGATE_BLOCK } from "./fragments";
 import { captionChunks, chunkCommentBody, DEFAULT_MAX_COMMENT_BYTES } from "./chunk";
@@ -82,56 +82,73 @@ function normalizeIssue(issue: RawIssue): Issue {
   };
 }
 
-interface IssuesByFilterResponse {
-  issues: {
-    nodes: RawIssue[];
-  };
+/**
+ * Does this error mean "Linear has no such issue", as opposed to auth,
+ * network, or a malformed query?
+ *
+ * `issue(id:)` answers a bad id with HTTP 200 + a GraphQL `errors` array, so
+ * linearGraphQL raises before any `{ issue: null }` reaches us. The message it
+ * carries ("Entity not found: Issue") names neither the id nor the word we
+ * report to callers, hence the translation below.
+ */
+function isEntityNotFound(error: unknown): boolean {
+  if (!(error instanceof LinearApiError)) return false;
+  return (error.details ?? []).some((detail) =>
+    detail?.message?.startsWith("Entity not found")
+  );
 }
 
-const IDENTIFIER_RE = /^([A-Za-z][A-Za-z0-9]*)-(\d+)$/;
-
 export async function getIssue(id: string): Promise<Issue> {
-  const identifierMatch = IDENTIFIER_RE.exec(id);
-  if (identifierMatch) {
-    const teamKey = identifierMatch[1].toUpperCase();
-    const number = Number(identifierMatch[2]);
-    const data = await linearGraphQL<IssuesByFilterResponse>(
+  // `issue(id:)` takes a UUID or a human identifier, matches identifiers
+  // case-insensitively, and — the reason this is the only lookup we do —
+  // still resolves an identifier that a team move has retired, returning the
+  // issue under its live one.
+  //
+  // Decomposing an identifier into team key + number and filtering on the pair
+  // is a hand-rolled version of the same lookup that silently loses that last
+  // property: post-move, the captured key and number no longer describe the
+  // issue, the filter matches nothing, and a ticket that plainly exists reads
+  // as not-found. That is INF-29 — AI-2535 became INF-27 and every dispatch
+  // holding the old identifier went unactionable.
+  let data: IssueResponse;
+  try {
+    data = await linearGraphQL<IssueResponse>(
       `
-        query IssueByIdentifier($teamKey: String!, $number: Float!) {
-          issues(filter: { number: { eq: $number }, team: { key: { eq: $teamKey } } }) {
-            nodes {
-              ${ISSUE_FIELDS}
-            }
+        query IssueDetail($id: String!) {
+          issue(id: $id) {
+            ${ISSUE_FIELDS}
           }
         }
       `,
-      { teamKey, number }
+      { id }
     );
-    if (!data.issues.nodes.length) {
+  } catch (error) {
+    if (isEntityNotFound(error)) {
       throw new Error(`Issue not found: ${id}`);
     }
-    return normalizeIssue(data.issues.nodes[0]);
+    throw error;
   }
-
-  const data = await linearGraphQL<IssueResponse>(
-    `
-      query IssueDetail($id: String!) {
-        issue(id: $id) {
-          ${ISSUE_FIELDS}
-        }
-      }
-    `,
-    { id }
-  );
   if (!data.issue) {
     throw new Error(`Issue not found: ${id}`);
   }
   return normalizeIssue(data.issue);
 }
 
+/**
+ * Team → default project mapping.
+ * When `linear create <team> <title>` is called without `--project`, the CLI
+ * auto-attaches the default project for teams listed here.
+ * Keys are Linear team UUIDs; values are Linear project UUIDs.
+ */
+const TEAM_DEFAULT_PROJECTS: Record<string, string> = {
+  // INF: all tickets auto-attach to "Fancy Openclaw Linear Connector"
+  "1519bfb2-fc64-4f4c-883c-0aeba9faf30a": "a6a0fd38-720f-42e8-9791-02682f44d269",
+};
+
 export async function createIssue(input: CreateIssueInput): Promise<Issue> {
   if (!input.projectId) {
-    process.stderr.write("Warning: no-orphan warning: creating issue without --project\n");
+    process.stderr.write("Warning: creating issue without --project — ticket is projectless. " +
+      "To avoid this, specify --project or configure a team-default project.\n");
   }
 
   // Without an explicit stateId, Linear's API silently lands the issue in Backlog
@@ -270,12 +287,21 @@ export async function moveIssueTeam(
 const BARE_ISSUE_RE = /\b([A-Z]{2,10}-\d+)\b/g;
 const HAS_BARE_ISSUE_RE = /\b[A-Z]{2,10}-\d+\b/;
 
-// Regex that skips bare identifiers inside code blocks, code spans, markdown links, or URLs
+// Regex that skips bare identifiers inside code blocks, code spans, markdown
+// links, URLs, or HTML comments.
+//
+// AI-2479: HTML comments carry machine-readable markers (the artifact-disclosure
+// record). Rewriting an identifier inside one corrupts the payload it encodes —
+// a branch named "feature/AI-2476-gate" would be stored as
+// "feature/[AI-2476](https://...)-gate" and never match the real branch again.
+// The rewrite is also pointless there: HTML comments do not render, so no human
+// ever sees the link.
 const SKIP_PATTERNS: RegExp[] = [
   /```[\s\S]*?```/g,
   /`[^`\n]+`/g,
   /!?\[[^\]]*\]\([^)]*\)/g,
-  /https?:\/\/\S+/g
+  /https?:\/\/\S+/g,
+  /<!--[\s\S]*?-->/g
 ];
 
 let cachedWorkspaceUrlKey: string | undefined;
@@ -611,7 +637,70 @@ export async function getMyManaging(): Promise<Issue[]> {
   return issues;
 }
 
+/**
+ * Agent slug → canonical Linear display name map.
+ *
+ * Agent slugs are short names (e.g. `signe`, `ken`, `fin`) used in
+ * workflow delegation commands like `continue-workflow <id> <slug>`.
+ * They differ from full Linear display names. Resolving them through
+ * `containsIgnoreCase` alone causes substring collisions when a slug
+ * is a prefix of multiple user names (e.g. `ken` matches both
+ * "Ken (Private Tutor)" and "Kenji (Game Director)").
+ *
+ * This map provides an unambiguous expansion in findUserByName.
+ * Update when agents are added or change display names in Linear.
+ */
+const AGENT_SLUG_MAP: Record<string, string> = {
+  ai: "Ai",
+  astrid: "Astrid (CPO)",
+  caspar: "Caspar (Image Specialist)",
+  clay: "Clay (3D Artist)",
+  cra: "CodeReviewAgent",
+  felix: "Felix (Unity Dev)",
+  finn: "Finn (CFO)",
+  grover: "Grover (OpenClaw Mechanic)",
+  hanzo: "Hanzo (Repo Manager)",
+  igor: "Igor (Back End Dev)",
+  kana: "Kana (Documentation Specialist)",
+  ken: "Ken (Private Tutor)",
+  kenji: "Kenji (Game Director)",
+  lacey: "Lacey",
+  laren: "Laren (CDO)",
+  maren: "Maren (Travel Agent)",
+  matt: "Matt Henry",
+  mckell: "Mckell (CMO)",
+  mika: "Mika (Torrent Lord)",
+  noah: "Noah (React Native Dev)",
+  penny: "Penny (UI Designer)",
+  poe: "Poe (Writer)",
+  sage: "Sage (Frontend Dev)",
+  signe: "Signe (UX Researcher)",
+  tdd: "TestDrivenDevelopmentAgent",
+  woz: "Woz",
+  yoshi: "Yoshi (ILL Liason)",
+};
+
+/**
+ * Resolve a name to a Linear user.
+ *
+ * Resolution order:
+ * 1. Slug map lookup — expand known agent slugs to canonical display names
+ * 2. Linear `containsIgnoreCase` query
+ * 3. Exact case-insensitive match on display name
+ * 4. Exact app-user shortname match on the original input
+ * 5. Prefix match (single user's name starts with query)
+ * 6. Single result fallback
+ * 7. Error with candidates
+ */
 export async function findUserByName(name: string): Promise<{ id: string; name: string; email?: string | null; app?: boolean | null }> {
+  // Step 1: Slug map expansion — resolve known agent slugs to canonical display names
+  // before the API query, preventing prefix collisions like `ken` matching both
+  // "Ken (Private Tutor)" and "Kenji (Game Director)".
+  const originalName = name;
+  const slugName = AGENT_SLUG_MAP[originalName.toLowerCase()];
+  if (slugName) {
+    name = slugName;
+  }
   const data = await linearGraphQL<SearchUsersResponse>(
     `
       query SearchUsers($query: String!) {
@@ -631,6 +720,33 @@ export async function findUserByName(name: string): Promise<{ id: string; name: 
   const exact = data.users.nodes.find((user) => user.name.toLowerCase() === name.toLowerCase());
   if (exact) {
     return exact;
+  }
+
+  const normalizedShortName = originalName.trim().toLowerCase();
+  const appShortNameMatches = data.users.nodes.filter((user) => {
+    if (user.app !== true) return false;
+    const firstToken = user.name.trim().split(/\s+/)[0]?.toLowerCase();
+    return firstToken === normalizedShortName;
+  });
+  if (appShortNameMatches.length === 1) {
+    return appShortNameMatches[0];
+  }
+  if (appShortNameMatches.length > 1) {
+    const candidates = appShortNameMatches.map((u) => u.name);
+    throw new Error(`Could not uniquely resolve Linear user "${originalName}". Possible matches: ${candidates.join(", ")}`);
+  }
+
+  // Prefix match: query string matches start of a display name (e.g., "signe" → "Signe (UX Researcher)")
+  // This ensures a short-name slug wins over accidental substring matches (e.g., "designer" containing "signe").
+  const lc = name.toLowerCase();
+  const prefixMatches = data.users.nodes.filter((user) => user.name.toLowerCase().startsWith(lc));
+  if (prefixMatches.length === 1) {
+    return prefixMatches[0];
+  }
+  if (prefixMatches.length > 1) {
+    // Multiple users share the same prefix — treat as ambiguous
+    const candidates = prefixMatches.map((u) => u.name);
+    throw new Error(`Could not uniquely resolve Linear user "${name}". Possible matches: ${candidates.join(", ")}`);
   }
 
   if (data.users.nodes.length === 1) {
@@ -750,6 +866,7 @@ interface ReadStateResponse {
       name: string;
       type: string;
     };
+    trashed: boolean;
   } | null;
 }
 
@@ -766,12 +883,13 @@ interface ReadLastCommentResponse {
   } | null;
 }
 
-export async function readState(id: string): Promise<{ name: string; type: string }> {
+export async function readState(id: string): Promise<{ name: string; type: string; trashed: boolean }> {
   const data = await linearGraphQL<ReadStateResponse>(
     `
       query ReadState($id: String!) {
         issue(id: $id) {
           state { name type }
+          trashed
         }
       }
     `,
@@ -782,7 +900,11 @@ export async function readState(id: string): Promise<{ name: string; type: strin
     throw new Error(`Issue not found: ${id}`);
   }
 
-  return data.issue.state;
+  return {
+    name: data.issue.state.name,
+    type: data.issue.state.type,
+    trashed: data.issue.trashed ?? false
+  };
 }
 
 export async function readLastComment(id: string): Promise<{

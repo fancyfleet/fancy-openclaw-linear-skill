@@ -24,9 +24,9 @@ const mockedGraphQL = linearGraphQL as jest.MockedFunction<typeof linearGraphQL>
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const issuesModule = require("../issues") as Record<string, unknown>;
 
-type ReadState = (id: string) => Promise<{ name: string; type: string }>;
+type ReadState = (id: string) => Promise<{ name: string; type: string; trashed: boolean }>;
 
-function readState(id: string): Promise<{ name: string; type: string }> {
+function readState(id: string): Promise<{ name: string; type: string; trashed: boolean }> {
   const fn = issuesModule.readState;
   if (typeof fn !== "function") {
     throw new Error(
@@ -45,22 +45,37 @@ afterEach(() => {
 });
 
 describe("AI-2491: readState (AC 1)", () => {
-  it("returns the current state name and type", async () => {
+  it("returns the current state name, type, and trashed flag", async () => {
     mockedGraphQL.mockResolvedValue({
       issue: {
         identifier: "AI-2491",
-        state: { name: "In Progress", type: "started" }
+        state: { name: "In Progress", type: "started" },
+        trashed: false
       }
     });
 
     const result = await readState("AI-2491");
 
-    expect(result).toMatchObject({ name: "In Progress", type: "started" });
+    expect(result).toMatchObject({ name: "In Progress", type: "started", trashed: false });
+  });
+
+  it("surfaces the trashed flag set to true for deleted tickets", async () => {
+    mockedGraphQL.mockResolvedValue({
+      issue: {
+        identifier: "LIF-35",
+        state: { name: "Doing", type: "started" },
+        trashed: true
+      }
+    });
+
+    const result = await readState("LIF-35");
+
+    expect(result).toMatchObject({ name: "Doing", trashed: true });
   });
 
   it("uses the strongly-consistent issue(id:) node query, not the issues(filter:) connection feed", async () => {
     mockedGraphQL.mockResolvedValue({
-      issue: { identifier: "AI-2491", state: { name: "Done", type: "completed" } }
+      issue: { identifier: "AI-2491", state: { name: "Done", type: "completed" }, trashed: false }
     });
 
     await readState("AI-2491");
@@ -72,7 +87,7 @@ describe("AI-2491: readState (AC 1)", () => {
 
   it("passes the human identifier straight to the node query rather than decomposing it into team key + number", async () => {
     mockedGraphQL.mockResolvedValue({
-      issue: { identifier: "AI-2491", state: { name: "Done", type: "completed" } }
+      issue: { identifier: "AI-2491", state: { name: "Done", type: "completed" }, trashed: false }
     });
 
     await readState("AI-2491");

@@ -15,13 +15,14 @@ import {
   isMattTarget,
   logRefusal,
 } from "./matt-escalation-guard";
-import { setProxyIntent, setProxyTarget, setProxyBreakGlass } from "./client";
+import { setProxyIntent, setProxyTarget, setProxyCodeArtifact, setProxySubstitutionReason } from "./client";
 import { getComments, getIssueHistory } from "./boards";
 import { getSelfUser } from "./auth";
-import { addComment, getIssue, updateIssue } from "./issues";
+import { addComment, getIssue, resolveUserWithHints, updateIssue } from "./issues";
 import { createDuplicateRelation } from "./relations";
 import { findStateByType } from "./states";
 import { resolveLabelIds } from "./labels";
+import { buildArtifactMarker, formatCodeArtifact, parseCodeArtifact } from "./artifact";
 import { IssueHistory } from "./types";
 
 const AGENT_REVIEW_LABEL = "gate:agent-review";
@@ -59,6 +60,8 @@ export interface ObserveResult {
   createdAt: string;
   state: { name: string };
   priority: number;
+  trashed?: boolean;
+  archivedAt?: string | null;
   assignee: { name: string } | null;
   delegate: { name: string } | null;
   labels: Array<{ name: string; color?: string | null }>;
@@ -127,6 +130,8 @@ export async function observeIssue(
     createdAt: issue.createdAt ?? "",
     state: { name: issue.state?.name ?? "Unknown" },
     priority: issue.priority ?? 0,
+    trashed: issue.trashed,
+    archivedAt: issue.archivedAt,
     assignee: issue.assignee ? { name: issue.assignee.name } : null,
     delegate: issue.delegate ? { name: issue.delegate.name } : null,
     labels: (issue.labels ?? []).map((l) => ({ name: l.name, color: l.color })),
@@ -308,6 +313,12 @@ async function guardMattEscalation(
  * With reviewHandoff: also applies the gate:agent-review label atomically
  * and prefixes the comment with `[Review Handoff]` if not already present.
  * Fails before any mutation if the label is missing on the target team.
+ *
+ * AI-2479 — with codeArtifact: declares the `<branch>@<sha>` this handoff is
+ * about. The declaration is recorded in the handoff comment as an HTML marker
+ * and sent to the proxy, which refuses a handoff that silently declares an
+ * artifact other than the one the caller was handed. substitutionReason is the
+ * sanctioned, non-silent path for a legitimate swap.
  */
 export async function handoffWork(
   issueId: string,
@@ -318,8 +329,20 @@ export async function handoffWork(
     forceDuplicate?: boolean;
     forceMattEscalation?: boolean;
     reviewHandoff?: boolean;
+    codeArtifact?: string;
+    substitutionReason?: string;
   }
 ): Promise<SemanticResult> {
+  // Parse before guardMattEscalation and before any mutation: a malformed
+  // operand must fail loudly and inertly, never half-apply a handoff.
+  const artifact = options?.codeArtifact ? parseCodeArtifact(options.codeArtifact) : undefined;
+  if (options?.substitutionReason && !artifact) {
+    throw new Error(
+      "--substitution-reason declares why the artifact differs from the one you were handed, " +
+      "so it requires --code-artifact <branch>@<sha>."
+    );
+  }
+
   await guardMattEscalation(issueId, delegateName, options);
 
   let comment = options?.comment;
@@ -352,6 +375,32 @@ export async function handoffWork(
     }
   }
 
+  // AI-2479: record the declared artifact in the comment body, so the record
+  // lives in the ticket timeline rather than in connector process memory — a
+  // handoff and its review can be days apart, and neither connector store
+  // survives a restart.
+  //
+  // Appended BEFORE near-duplicate detection deliberately. Two handoffs whose
+  // text AND artifact match are still true duplicates and should still collapse
+  // (the surviving earlier comment already carries the identical marker, so the
+  // record is not lost); two handoffs declaring DIFFERENT artifacts now differ in
+  // body and both post, which is exactly the history the guard needs to read.
+  if (artifact) {
+    if (commentFile) {
+      comment = (await fs.readFile(commentFile, "utf8")).trim();
+      commentFile = undefined;
+    }
+    // Resolve the recipient so the marker records WHO owes the next disclosure.
+    // executeTransition resolves this name again; the duplicate read is worth it
+    // to keep the marker addressed, and it only runs when --code-artifact is
+    // passed, so a handoff without a declaration makes no extra call and behaves
+    // exactly as it did before. Resolving here also fails loudly on a bad name
+    // before the comment is posted, matching parseCodeArtifact above.
+    const recipient = await resolveUserWithHints(delegateName, "handoff-work");
+    const body = comment?.trim() || `Handing off. Artifact: ${formatCodeArtifact(artifact)}`;
+    comment = `${body}\n\n${buildArtifactMarker(artifact, recipient.id)}`;
+  }
+
   // AI-1494: a generic handoff on a live wf:dev-impl ticket is an OWNER change,
   // not a STATE change. The previous behavior reset the native column to "To Do"
   // and stripped the `state:*` projection label, mis-rendering the board and
@@ -371,8 +420,18 @@ export async function handoffWork(
     .map((l) => l.name.toLowerCase())
     .find((n) => n in DEV_IMPL_STATE_TARGET);
 
+  // AI-2595: set proxy intent "handoff" on dev-impl governed tickets. The dev-impl
+  // workflow now declares a `handoff` self-loop transition from `implementation`
+  // state (AI-2595 AC2 + INF-93), so the intent routes through checkWorkflowRules
+  // → applyStateTransition, where the self-loop delegate-semantics code writes the
+  // delegate atomically (data-loss-safe, label-preserving). Non-dev-impl handoffs
+  // remain intent-free (the connector's raw-mutation interception handles them).
+  if (artifact) setProxyCodeArtifact(formatCodeArtifact(artifact));
+  if (options?.substitutionReason) setProxySubstitutionReason(options.substitutionReason);
+  try {
   if (activeStateLabel && !options?.reviewHandoff) {
-    return executeTransition("handoffWork", {
+    setProxyIntent("handoff");
+    return await executeTransition("handoffWork", {
       issueId,
       comment,
       commentFile,
@@ -388,13 +447,17 @@ export async function handoffWork(
       requireAppUserDelegate: true,
       commentFirst: true,
       omitStateId: true,
+      // AI-2595: self-loop (source === destination) — state:* labels don't change,
+      // so skip the post-transition label-verify check. The delegate persistence
+      // check (executeTransition step 11) still verifies the write landed.
+      skipPostTransitionVerify: true,
       // Intentionally NOT clearing assignee and NOT stripping the state:* label:
       // sending assigneeId/labelIds would trip the proxy's raw-mutation block and
       // dropping the label is exactly the regression this fixes.
-    });
+    }).finally(() => { setProxyIntent(undefined); });
   }
 
-  return executeTransition("handoffWork", {
+  return await executeTransition("handoffWork", {
     issueId,
     comment,
     commentFile,
@@ -413,6 +476,10 @@ export async function handoffWork(
     // prevent column/label divergence (state=To Do but label=state:implementation).
     removeLabelsIfPresent: ["state:intake", "state:implementation", "state:code-review", "state:merge", "state:deploy"],
   });
+  } finally {
+    setProxyCodeArtifact(undefined);
+    setProxySubstitutionReason(undefined);
+  }
 }
 
 /**
@@ -1576,15 +1643,13 @@ export async function demote(
  * the connector but had no CLI wrapper, so dispatch messages advertised
  * commands agents could not run and governed tickets got stuck re-dispatching.
  * This verb closes that class of gap: new connector moves need no CLI release.
- *
- * INF-482: added --break-glass support for emergency recovery.
  */
 const MOVE_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 export async function transition(
   issueId: string,
   move: string,
-  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string; breakGlass?: boolean }
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }
 ): Promise<SemanticResult> {
   if (!MOVE_NAME_PATTERN.test(move)) {
     throw new Error(
@@ -1600,9 +1665,6 @@ export async function transition(
   }
   setProxyTarget(options?.target);
   setProxyIntent(move);
-  if (options?.breakGlass) {
-    setProxyBreakGlass(true);
-  }
   try {
     return await executeTransition(move, {
       issueId,
@@ -1618,6 +1680,5 @@ export async function transition(
   } finally {
     setProxyIntent(undefined);
     setProxyTarget(undefined);
-    setProxyBreakGlass(undefined);
   }
 }

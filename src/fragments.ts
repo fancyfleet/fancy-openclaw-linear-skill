@@ -81,6 +81,8 @@ export const ISSUE_FIELDS = `
   url
   createdAt
   updatedAt
+  trashed
+  archivedAt
   team {
     ${TEAM_FIELDS}
   }
