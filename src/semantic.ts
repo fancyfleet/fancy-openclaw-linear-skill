@@ -15,7 +15,7 @@ import {
   isMattTarget,
   logRefusal,
 } from "./matt-escalation-guard";
-import { setProxyIntent, setProxyTarget } from "./client";
+import { setProxyIntent, setProxyTarget, setProxyBreakGlass } from "./client";
 import { getComments, getIssueHistory } from "./boards";
 import { getSelfUser } from "./auth";
 import { addComment, getIssue, updateIssue } from "./issues";
@@ -1560,5 +1560,64 @@ export async function demote(
     });
   } finally {
     setProxyIntent(undefined);
+  }
+}
+
+/**
+ * linear transition <id> <move>
+ *
+ * Generic governed transition: sends any named workflow move through the proxy
+ * (`X-Openclaw-Linear-Intent: <move>`) without needing a dedicated CLI verb.
+ * The proxy/connector remains the sole authority on whether the move is legal
+ * in the ticket's current state, and its applyStateTransition performs all
+ * state/label/delegate effects (omitStateId — the CLI writes no state itself).
+ *
+ * INF-204: workflow moves like sprint-spawner `hold` / `start-cycle` existed in
+ * the connector but had no CLI wrapper, so dispatch messages advertised
+ * commands agents could not run and governed tickets got stuck re-dispatching.
+ * This verb closes that class of gap: new connector moves need no CLI release.
+ *
+ * INF-482: added --break-glass support for emergency recovery.
+ */
+const MOVE_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
+
+export async function transition(
+  issueId: string,
+  move: string,
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string; breakGlass?: boolean }
+): Promise<SemanticResult> {
+  if (!MOVE_NAME_PATTERN.test(move)) {
+    throw new Error(
+      `Invalid move name "${move}": expected a lowercase kebab-case workflow move (e.g. hold, start-cycle).`
+    );
+  }
+  if (!process.env.LINEAR_PROXY_URL) {
+    throw new Error(
+      `linear transition requires the governed proxy (LINEAR_PROXY_URL is not set). ` +
+      `Without the proxy there is no workflow engine to resolve "${move}", and the CLI ` +
+      `will not guess state effects for arbitrary moves.`
+    );
+  }
+  setProxyTarget(options?.target);
+  setProxyIntent(move);
+  if (options?.breakGlass) {
+    setProxyBreakGlass(true);
+  }
+  try {
+    return await executeTransition(move, {
+      issueId,
+      comment: options?.comment,
+      commentFile: options?.commentFile,
+      forceDuplicate: options?.forceDuplicate,
+      userName: options?.target,
+    }, {
+      commentMode: "optional",
+      omitStateId: true,
+      ...(options?.target ? { delegateName: (args: TransitionArgs) => args.userName } : {}),
+    });
+  } finally {
+    setProxyIntent(undefined);
+    setProxyTarget(undefined);
+    setProxyBreakGlass(undefined);
   }
 }

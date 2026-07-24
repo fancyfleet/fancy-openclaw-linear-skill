@@ -1108,6 +1108,17 @@ async function main(): Promise<void> {
       await runMetrics(options);
     });
 
+  program.command("transition").argument("<id>").argument("<move>")
+    .option("--comment <msg>", INLINE_COMMENT_HELP)
+    .option("--comment-file <path>", "Read comment from file")
+    .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .option("--target <name>", "Optional delegate target for moves that route to a specific agent")
+    .option("--break-glass", "Bypass enforcement for emergency recovery (stewards only)")
+    .description("Generic governed transition: send any named workflow move (e.g. hold, start-cycle) through the proxy. The proxy decides legality in the ticket's current state; dedicated verbs remain as aliases. (INF-204)")
+    .action(async (id: string, move: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string; breakGlass?: boolean }) => {
+      await runCommand(async () => transition(id, move, options), program.opts<{ human?: boolean }>().human);
+    });
+
   program.command("managing")
     .description("Tickets you are stewarding (Managing state)")
     .action(async () => {

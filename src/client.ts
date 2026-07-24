@@ -61,6 +61,16 @@ export function setProxyTarget(target: string | undefined): void {
   _proxyTarget = target;
 }
 
+let _proxyBreakGlass: boolean | undefined;
+
+/**
+ * AI-482: Set whether to include the X-Openclaw-Break-Glass header.
+ * Allows stewards to bypass enforcement for emergency recovery.
+ */
+export function setProxyBreakGlass(enabled: boolean | undefined): void {
+  _proxyBreakGlass = enabled;
+}
+
 /**
  * AI-1769 AC2: when a governed transition's required comment was suppressed as a
  * near-duplicate of an existing comment, the CLI still sends the transition
@@ -92,6 +102,7 @@ function proxyHeaders(): Record<string, string> {
   if (_proxyIntent) headers["X-Openclaw-Linear-Intent"] = _proxyIntent;
   if (_proxyCommandId) headers["X-Openclaw-Command-Id"] = _proxyCommandId;
   if (_proxyTarget) headers["X-Openclaw-Linear-Target"] = _proxyTarget;
+  if (_proxyBreakGlass) headers["X-Openclaw-Break-Glass"] = "true";
   if (_proxyCommentSatisfiedBy) headers["X-Openclaw-Comment-Satisfied-By"] = _proxyCommentSatisfiedBy;
   return headers;
 }
