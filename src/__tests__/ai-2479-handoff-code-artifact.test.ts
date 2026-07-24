@@ -226,12 +226,12 @@ describe("handoff-work — sets proxy intent on dev-impl governed tickets", () =
   // → applyStateTransition. The dev-impl workflow definition declares a `handoff`
   // self-loop transition from `implementation` state, so the intent is legal;
   // applyStateTransition's self-loop delegate-semantics (AI-2595 AC2) writes the
-  // delegate atomically. Non-dev-impl handoffs remain intent-free.
+  // delegate atomically. Plain ad-hoc handoffs remain intent-free.
   it.each([
     ["plain", {}],
     ["with an artifact", { codeArtifact: ARTIFACT }],
     ["with a review handoff", { reviewHandoff: true }],
-  ])("sets no intent on non-dev-impl handoffs (%s)", async (_label, extra) => {
+  ])("sets no intent on ad-hoc handoffs (%s)", async (_label, extra) => {
     await handoffWork("AI-2479", "Ai", { comment: "c", ...extra });
 
     expect(mockSetProxyIntent).not.toHaveBeenCalled();

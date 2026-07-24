@@ -28,7 +28,7 @@ import { handoffWork } from "../semantic";
 import { addComment, getIssue, updateIssue, resolveUserWithHints } from "../issues";
 import { getSelfUser } from "../auth";
 import { findSemanticState } from "../states";
-import { setProxyIntent } from "../client";
+import { setProxyIntent, setProxyTarget } from "../client";
 
 jest.mock("../client", () => ({
   ...jest.requireActual("../client"),
@@ -74,6 +74,7 @@ const mockGetSelfUser = getSelfUser as jest.MockedFunction<typeof getSelfUser>;
 const mockResolveUserWithHints = resolveUserWithHints as jest.MockedFunction<typeof resolveUserWithHints>;
 const mockFindSemanticState = findSemanticState as jest.MockedFunction<typeof findSemanticState>;
 const mockSetProxyIntent = setProxyIntent as jest.MockedFunction<typeof setProxyIntent>;
+const mockSetProxyTarget = setProxyTarget as jest.MockedFunction<typeof setProxyTarget>;
 
 const TEAM = { id: "team-inf", key: "INF", name: "Infra" };
 const REVIEWER = { id: "user-ai", name: "Ai", app: true };
@@ -134,14 +135,27 @@ describe("INF-505 — governed non-dev-impl handoff routes through the proxy int
     expect(mockSetProxyIntent).toHaveBeenLastCalledWith(undefined);
   });
 
-  it("AC(a): emits no blockable raw state/label/delegate mutation — the comment is the sole trigger", async () => {
+  it("forwards the explicit worker target for multi-body task roles", async () => {
     await handoffWork("INF-497", "Igor (Back End Dev)", { comment: "Deploy is yours — merge + AC5." });
 
-    // The comment carries the intent and IS the transition trigger (commentTriggersProxy),
-    // so no issueUpdate is emitted at all on the happy path. Critically, the CLI never
-    // sends the { stateId, assigneeId, removedLabelIds } raw mutation the gate rejects —
-    // that rejection, after commentFirst, is exactly what stranded the partial handoff.
+    // `task.yaml` resolves `worker` through a multi-body role. Without X-Openclaw-Target
+    // the connector falls back to role resolution and fail-closes with
+    // "multi-body role 'worker' requires a --target".
+    expect(mockSetProxyTarget).toHaveBeenNthCalledWith(1, "Igor (Back End Dev)");
+    expect(mockSetProxyTarget).toHaveBeenLastCalledWith(undefined);
+  });
+
+  it("AC(a): emits no blockable raw state/label/delegate mutation, then comments after the delegate lands", async () => {
+    await handoffWork("INF-497", "Igor (Back End Dev)", { comment: "Deploy is yours — merge + AC5." });
+
+    // The empty update carries the intent and explicit target. Critically, the CLI
+    // never sends the { stateId, assigneeId, removedLabelIds, delegateId } raw
+    // mutation the gate rejects; that rejection after commentFirst was the partial
+    // handoff bug. The comment is posted only after the proxy write returns.
+    expect(mockUpdateIssue).toHaveBeenCalledTimes(1);
+    expect(mockUpdateIssue).toHaveBeenCalledWith("INF-497", {});
     expect(mockAddComment).toHaveBeenCalledWith("INF-497", "Deploy is yours — merge + AC5.");
+    expect(mockUpdateIssue.mock.invocationCallOrder[0]).toBeLessThan(mockAddComment.mock.invocationCallOrder[0]);
     for (const call of mockUpdateIssue.mock.calls) {
       const payload = call[1] as Record<string, unknown>;
       expect(payload).not.toHaveProperty("stateId");
@@ -177,10 +191,12 @@ describe("INF-505 — governed non-dev-impl handoff routes through the proxy int
     // Proxy declined / fail-opened: the post-trigger re-fetch still shows the reviewer.
     mockGetIssue.mockReset();
     mockGetIssue.mockResolvedValue(taskDoingIssue); // pre AND every post read: delegate unchanged
+    mockUpdateIssue.mockResolvedValue(taskDoingIssue);
 
     await expect(
       handoffWork("INF-497", "Igor (Back End Dev)", { comment: "Deploy is yours." })
     ).rejects.toThrow(/delegate write did not persist/);
+    expect(mockAddComment).not.toHaveBeenCalled();
   });
 });
 

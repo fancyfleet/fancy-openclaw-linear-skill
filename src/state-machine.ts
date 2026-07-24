@@ -295,6 +295,15 @@ export interface StateTransition {
   delegateToSelf?: boolean;
   /** Comment before or after the state update? Default: false (after) */
   commentFirst?: boolean;
+  /**
+   * For proxy-governed transitions with comments, default behavior is to let the
+   * comment carry the proxy intent and act as the transition trigger. Disable
+   * this for commands whose comment must be posted only after the proxy write has
+   * already succeeded.
+   */
+  commentTriggersProxy?: boolean;
+  /** Post the transition comment only after post-trigger verification succeeds. */
+  postCommentAfterVerify?: boolean;
   /** Skip update when already in target state? (idempotency guard for beginWork) */
   skipIfSameState?: boolean;
   /** Include context (issue + comments) in result? (for considerWork) */
@@ -706,7 +715,12 @@ export async function executeTransition(
   // Without a proxy there is nothing for the comment to trigger, so deferring to it means
   // the transition is never written at all — the comment posts and the issueUpdate at
   // step 9 is skipped. In direct-API mode the CLI is the only writer and must do the update.
-  const commentTriggersProxy = !!(isProxyGoverned && body && config.commentMode !== "none");
+  const commentTriggersProxy = !!(
+    isProxyGoverned &&
+    body &&
+    config.commentMode !== "none" &&
+    config.commentTriggersProxy !== false
+  );
 
   // 7. Post comment (before update when commentFirst or commentTriggersProxy)
   let commentPosted = false;
@@ -719,6 +733,28 @@ export async function executeTransition(
   let commentCreatedAt: string | null = null;
   let commentBodyLength: number | null = null;
   let bodyFile: string | null = null;
+  const postTransitionComment = async () => {
+    const rateHit = args.forceDuplicate ? null : await checkCommentRateLimit(args.issueId);
+    if (rateHit) {
+      rateLimitBlocked = true;
+      rateLimitDetails = { recentCount: rateHit.recentCount, maxAllowed: rateHit.maxAllowed, windowSeconds: rateHit.windowSeconds };
+      return;
+    }
+    const dup = args.forceDuplicate ? null : await findRecentDuplicate(args.issueId, body!);
+    if (dup) {
+      duplicateBlocked = true;
+      duplicateDetails = { existingCommentId: dup.id, similarity: dup.similarity, ageSeconds: dup.ageSeconds };
+      commentId = dup.id;
+      return;
+    }
+    const result = await addComment(args.issueId, body!);
+    commentId = result.commentId;
+    commentUrl = result.commentUrl;
+    commentCreatedAt = result.commentCreatedAt;
+    commentBodyLength = result.commentBodyLength;
+    bodyFile = result.bodyFile ?? null;
+    commentPosted = true;
+  };
   if (body && config.commentMode !== "none") {
     if (config.commentFirst || commentTriggersProxy) {
       // Rate limit check (independent of similarity)
@@ -831,28 +867,8 @@ export async function executeTransition(
   }
 
   // 10. Post comment (after update if not commentFirst and not already posted via commentTriggersProxy)
-  if (body && config.commentMode !== "none" && !config.commentFirst && !commentTriggersProxy) {
-    // Rate limit check (independent of similarity)
-    const rateHit = args.forceDuplicate ? null : await checkCommentRateLimit(args.issueId);
-    if (rateHit) {
-      rateLimitBlocked = true;
-      rateLimitDetails = { recentCount: rateHit.recentCount, maxAllowed: rateHit.maxAllowed, windowSeconds: rateHit.windowSeconds };
-    } else {
-      const dup = args.forceDuplicate ? null : await findRecentDuplicate(args.issueId, body);
-      if (dup) {
-        duplicateBlocked = true;
-        duplicateDetails = { existingCommentId: dup.id, similarity: dup.similarity, ageSeconds: dup.ageSeconds };
-        commentId = dup.id;
-      } else {
-        const result = await addComment(args.issueId, body);
-        commentId = result.commentId;
-        commentUrl = result.commentUrl;
-        commentCreatedAt = result.commentCreatedAt;
-        commentBodyLength = result.commentBodyLength;
-        bodyFile = result.bodyFile ?? null;
-        commentPosted = true;
-      }
-    }
+  if (body && config.commentMode !== "none" && !config.commentFirst && !commentTriggersProxy && !config.postCommentAfterVerify) {
+    await postTransitionComment();
   }
 
   // 10.5 (AI-1769 AC1): verify a proxy-governed transition actually applied.
@@ -921,6 +937,10 @@ export async function executeTransition(
       `If the target is an app user, ensure the Linear API constraint is satisfied (AI-1395). ` +
       `Inspect the ticket and re-run the command (or route via the workflow verb with --target).`
     );
+  }
+
+  if (body && config.commentMode !== "none" && !config.commentFirst && !commentTriggersProxy && config.postCommentAfterVerify) {
+    await postTransitionComment();
   }
 
   const result: TransitionResult = {

@@ -431,23 +431,25 @@ export async function handoffWork(
   // ticket through the proxy `handoff` intent instead: the connector allows the
   // `handoff`/`handoff-work` meta-command from ANY workflow state (workflow-gate
   // INF-124/AI-1395) and applyStateTransition writes the delegate atomically as a
-  // self-loop. So the handoff is (a) atomic — the comment carries the intent and,
-  // if the proxy declines, no partial state is written — and (b) legal from `doing`,
-  // giving a reviewer a legal verb to route a prematurely-handed ticket back to the
-  // implementer (`linear handoff-work <ID> <worker>` as the current delegate).
+  // self-loop. So the handoff is (a) atomic — the intent-bearing update runs
+  // first and the comment posts only after the delegate write verifies — and (b)
+  // legal from `doing`, giving a reviewer a legal verb to route a prematurely-
+  // handed ticket back to the implementer (`linear handoff-work <ID> <worker>`).
   const governedStateLabel = stateLabels.find((n) => n.startsWith("state:"));
 
   // AI-2595 / INF-505: set proxy intent "handoff" on any governed ticket. The intent
   // routes through checkWorkflowRules → applyStateTransition, where the self-loop
   // delegate-semantics code writes the delegate atomically (data-loss-safe,
-  // label-preserving). Ungoverned (ad-hoc) tickets carry no state:* label and keep
-  // the intent-free generic path below (the connector's raw-mutation interception
-  // handles a plain delegate change on a non-workflow ticket).
+  // label-preserving). It must also forward the resolved delegate as the proxy
+  // target: task.workflow's `worker` is a multi-body role, so role fallback alone
+  // fail-closes. Ungoverned (ad-hoc) tickets carry no state:* label and keep the
+  // intent-free generic path below.
   if (artifact) setProxyCodeArtifact(formatCodeArtifact(artifact));
   if (options?.substitutionReason) setProxySubstitutionReason(options.substitutionReason);
   try {
   if (governedStateLabel && !options?.reviewHandoff) {
     setProxyIntent("handoff");
+    setProxyTarget(delegateName);
     return await executeTransition("handoffWork", {
       issueId,
       comment,
@@ -465,7 +467,8 @@ export async function handoffWork(
       commentMode: "optional-with-warning",
       delegateName: (args) => args.userName,
       requireAppUserDelegate: true,
-      commentFirst: true,
+      commentTriggersProxy: false,
+      postCommentAfterVerify: true,
       omitStateId: true,
       // AI-2595: self-loop (source === destination) — state:* labels don't change,
       // so skip the post-transition label-verify check. The delegate persistence
@@ -474,7 +477,7 @@ export async function handoffWork(
       // Intentionally NOT clearing assignee and NOT stripping the state:* label:
       // sending assigneeId/labelIds would trip the proxy's raw-mutation block and
       // dropping the label is exactly the regression this fixes.
-    }).finally(() => { setProxyIntent(undefined); });
+    }).finally(() => { setProxyIntent(undefined); setProxyTarget(undefined); });
   }
 
   return await executeTransition("handoffWork", {
