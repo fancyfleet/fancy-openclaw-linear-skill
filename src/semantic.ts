@@ -416,20 +416,37 @@ export async function handoffWork(
     "state:merge": "doing",
     "state:deploy": "doing",
   };
-  const activeStateLabel = (issue.labels ?? [])
-    .map((l) => l.name.toLowerCase())
-    .find((n) => n in DEV_IMPL_STATE_TARGET);
+  const stateLabels = (issue.labels ?? []).map((l) => l.name.toLowerCase());
+  // dev-impl states resolve their native column for the (suppressed) state write.
+  const devImplStateLabel = stateLabels.find((n) => n in DEV_IMPL_STATE_TARGET);
+  // INF-505: ANY governed ticket carries a `state:*` projection label, not just
+  // dev-impl. The routing below was gated on dev-impl states only, so a handoff on
+  // a `task`-workflow ticket (state `state:doing`) fell through to the generic raw
+  // path below, which sends stateId + assigneeId + label deltas. On a gated ticket
+  // that raw mutation is rejected by the connector's workflow-gate ("Direct
+  // status/assignee/delegate changes are blocked ... Use `submit`/`escape`") — but
+  // only AFTER the comment posted first (commentFirst), stranding a partial handoff
+  // (the INF-505 defect #1 repro). It also left no legal edge to return a `doing`
+  // ticket to its worker (defect #2). Both are fixed by routing every governed
+  // ticket through the proxy `handoff` intent instead: the connector allows the
+  // `handoff`/`handoff-work` meta-command from ANY workflow state (workflow-gate
+  // INF-124/AI-1395) and applyStateTransition writes the delegate atomically as a
+  // self-loop. So the handoff is (a) atomic — the comment carries the intent and,
+  // if the proxy declines, no partial state is written — and (b) legal from `doing`,
+  // giving a reviewer a legal verb to route a prematurely-handed ticket back to the
+  // implementer (`linear handoff-work <ID> <worker>` as the current delegate).
+  const governedStateLabel = stateLabels.find((n) => n.startsWith("state:"));
 
-  // AI-2595: set proxy intent "handoff" on dev-impl governed tickets. The dev-impl
-  // workflow now declares a `handoff` self-loop transition from `implementation`
-  // state (AI-2595 AC2 + INF-93), so the intent routes through checkWorkflowRules
-  // → applyStateTransition, where the self-loop delegate-semantics code writes the
-  // delegate atomically (data-loss-safe, label-preserving). Non-dev-impl handoffs
-  // remain intent-free (the connector's raw-mutation interception handles them).
+  // AI-2595 / INF-505: set proxy intent "handoff" on any governed ticket. The intent
+  // routes through checkWorkflowRules → applyStateTransition, where the self-loop
+  // delegate-semantics code writes the delegate atomically (data-loss-safe,
+  // label-preserving). Ungoverned (ad-hoc) tickets carry no state:* label and keep
+  // the intent-free generic path below (the connector's raw-mutation interception
+  // handles a plain delegate change on a non-workflow ticket).
   if (artifact) setProxyCodeArtifact(formatCodeArtifact(artifact));
   if (options?.substitutionReason) setProxySubstitutionReason(options.substitutionReason);
   try {
-  if (activeStateLabel && !options?.reviewHandoff) {
+  if (governedStateLabel && !options?.reviewHandoff) {
     setProxyIntent("handoff");
     return await executeTransition("handoffWork", {
       issueId,
@@ -439,9 +456,12 @@ export async function handoffWork(
       commandName: "handoff-work",
       forceDuplicate: options?.forceDuplicate,
     }, {
-      // targetState resolves the current native state (a no-op for the column);
-      // omitStateId suppresses the write so the proxy stays the sole native writer.
-      targetState: DEV_IMPL_STATE_TARGET[activeStateLabel],
+      // dev-impl states resolve their native column for the (suppressed) state
+      // write; other governed workflows omit targetState so result.state reflects
+      // the re-fetched actual column (native names differ per workflow, and
+      // omitStateId suppresses the write regardless — the proxy is the sole native
+      // writer of the column either way).
+      targetState: devImplStateLabel ? DEV_IMPL_STATE_TARGET[devImplStateLabel] : undefined,
       commentMode: "optional-with-warning",
       delegateName: (args) => args.userName,
       requireAppUserDelegate: true,
