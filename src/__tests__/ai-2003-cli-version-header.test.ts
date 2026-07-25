@@ -13,7 +13,7 @@
  */
 
 import axios from "axios";
-import { linearGraphQL } from "../client";
+import { linearGraphQL, setProxyIntent } from "../client";
 import pkg from "../../package.json";
 
 jest.mock("axios");
@@ -49,13 +49,17 @@ describe("AI-2003 — CLI version header on proxied requests", () => {
 
   beforeEach(() => {
     mockedAxios.post.mockReset();
+    mockedAxios.get.mockReset();
     (mockedAxios.isAxiosError as unknown as jest.Mock) = jest.fn(() => false);
     mockedAxios.post.mockResolvedValue({ data: { data: { ok: true } } });
+    mockedAxios.get.mockResolvedValue({ data: { protocolVersion: "1", minCliVersion: "0.3.8" }, headers: {} });
+    setProxyIntent(undefined);
   });
 
   afterEach(() => {
     if (OLD_ENV === undefined) delete process.env.LINEAR_PROXY_URL;
     else process.env.LINEAR_PROXY_URL = OLD_ENV;
+    setProxyIntent(undefined);
   });
 
   it("emits X-Openclaw-Linear-Cli-Version carrying the real package version when proxied", async () => {
@@ -74,6 +78,36 @@ describe("AI-2003 — CLI version header on proxied requests", () => {
     expect(headers["X-Openclaw-Agent"]).toBe("igor");
   });
 
+  it("preflights intent-bearing proxied commands against the connector compatibility endpoint", async () => {
+    process.env.LINEAR_PROXY_URL = "https://proxy.example.test/proxy/graphql";
+    setProxyIntent("submit");
+
+    await linearGraphQL("mutation { issueUpdate(id: \"issue\", input: {}) { success } }");
+
+    expect(mockedAxios.get).toHaveBeenCalledWith(
+      "https://proxy.example.test/proxy/compatibility",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "test-api-key",
+          "X-Openclaw-Linear-Cli-Version": pkg.version,
+          "X-Openclaw-Linear-Intent": "submit",
+        }),
+      })
+    );
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses before GraphQL when the connector requires a newer CLI", async () => {
+    process.env.LINEAR_PROXY_URL = "https://proxy.example.test/proxy/graphql";
+    mockedAxios.get.mockResolvedValue({ data: { protocolVersion: "1", minCliVersion: "999.0.0" }, headers: {} });
+    setProxyIntent("submit");
+
+    await expect(linearGraphQL("mutation { issueUpdate(id: \"issue\", input: {}) { success } }"))
+      .rejects.toThrow(`connector requires linear CLI >= 999.0.0, you have ${pkg.version}`);
+
+    expect(mockedAxios.post).not.toHaveBeenCalled();
+  });
+
   it("does NOT add proxy headers on a direct (non-proxy) request", async () => {
     delete process.env.LINEAR_PROXY_URL;
 
@@ -82,5 +116,6 @@ describe("AI-2003 — CLI version header on proxied requests", () => {
     const headers = lastPostHeaders();
     expect(headers["X-Openclaw-Linear-Cli-Version"]).toBeUndefined();
     expect(headers["X-Openclaw-Agent"]).toBeUndefined();
+    expect(mockedAxios.get).not.toHaveBeenCalled();
   });
 });

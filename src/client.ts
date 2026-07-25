@@ -5,6 +5,7 @@ import { debugDump, isDebugMode } from "./debug";
 import pkg from "../package.json";
 
 const LINEAR_API_URL = "https://api.linear.app/graphql";
+const LINEAR_PROXY_COMPATIBILITY_PATH = "/proxy/compatibility";
 
 /**
  * Returns the GraphQL endpoint to use. When LINEAR_PROXY_URL is set, all
@@ -134,6 +135,60 @@ function proxyHeaders(): Record<string, string> {
     headers["X-Openclaw-Substitution-Reason"] = encodeURIComponent(_proxySubstitutionReason);
   }
   return headers;
+}
+
+interface ProxyCompatibilityResponse {
+  protocolVersion?: string;
+  minCliVersion?: string;
+}
+
+function proxyCompatibilityUrl(apiUrl: string): string {
+  const url = new URL(apiUrl);
+  if (url.pathname.endsWith("/proxy/graphql")) {
+    url.pathname = url.pathname.slice(0, -"/proxy/graphql".length) + LINEAR_PROXY_COMPATIBILITY_PATH;
+  } else {
+    url.pathname = `${url.pathname.replace(/\/+$/, "")}${LINEAR_PROXY_COMPATIBILITY_PATH}`;
+  }
+  url.search = "";
+  return url.toString();
+}
+
+/** Parse a semver string into [major, minor, patch] tuple, or null on failure. */
+function parseSemver(v: string): [number, number, number] | null {
+  const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(v.trim());
+  if (!m) return null;
+  return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)];
+}
+
+/** Returns true when `a` is strictly less than `b`. */
+function semverLt(a: [number, number, number], b: [number, number, number]): boolean {
+  if (a[0] !== b[0]) return a[0] < b[0];
+  if (a[1] !== b[1]) return a[1] < b[1];
+  return a[2] < b[2];
+}
+
+function formatCompatibilityError(minVersion: string): string {
+  return `connector requires linear CLI >= ${minVersion}, you have ${pkg.version} — run the linear CLI converge/rebuild before retrying.`;
+}
+
+async function ensureProxyCompatibility(
+  apiUrl: string,
+  headers: Record<string, string>
+): Promise<void> {
+  if (!_proxyIntent) return;
+  const response = await axios.get<ProxyCompatibilityResponse>(
+    proxyCompatibilityUrl(apiUrl),
+    { headers }
+  );
+  const minVersion =
+    response.data?.minCliVersion ??
+    (response.headers?.["x-openclaw-linear-min-cli-version"] as string | undefined);
+  if (!minVersion) return;
+  const installed = parseSemver(pkg.version);
+  const required = parseSemver(minVersion);
+  if (installed && required && semverLt(installed, required)) {
+    throw new LinearApiError(formatCompatibilityError(minVersion), "CLI_VERSION_INCOMPATIBLE");
+  }
 }
 
 export interface GraphQLErrorDetail {
@@ -272,6 +327,9 @@ export async function linearGraphQL<T>(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
+      if (attempt === 1 && process.env.LINEAR_PROXY_URL) {
+        await ensureProxyCompatibility(apiUrl, headers);
+      }
       const response = await executeGraphQL<T>(apiUrl, query, variables, headers);
 
       if (response.data.errors?.length) {
