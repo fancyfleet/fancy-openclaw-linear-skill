@@ -16,8 +16,8 @@ import { uploadFile } from "./upload";
 import { fetchImage } from "./fetch-image";
 import { listGuidanceTopics, fetchGuidanceTopic } from "./guidance";
 import { deleteIssue, deleteComment } from "./delete";
-import { listLabels, addLabels, removeLabels, resolveOrCreateLabelId } from "./labels";
-import { resolveWorkflowLabelName } from "./workflow-create";
+import { listLabels, addLabels, removeLabels, resolveExistingLabelId } from "./labels";
+import { normalizeWorkflowId, appendWorkflowRequestMarker, WF_PENDING_LABEL } from "./workflow-create";
 import { searchIssues } from "./search";
 import { linearTest } from "./test";
 import { runMetrics } from "./metrics";
@@ -429,7 +429,7 @@ async function main(): Promise<void> {
     .option("--priority <priority>")
     .option("--parent <parentId>")
     .option("--state <state>", "Workflow state name or semantic alias (todo, backlog, doing, thinking). Defaults to To Do.")
-    .option("--workflow <id>", "Author the ticket into a managed workflow at its entry state (e.g. dev-impl). Pre-attaches the wf:<id> label so the connector bootstraps it into intake. Mutually exclusive with --state.")
+    .option("--workflow <id>", "Author the ticket into a managed workflow at its entry state (e.g. dev-impl). Attaches the wf:pending sentinel and records the requested id so the connector resolves it against the workflow registry — enrolling at the entry state, or loudly rejecting an unregistered id back to you. Mutually exclusive with --state.")
     .option("--dry-run", "Resolve inputs and print the create payload without creating an issue")
     .action(async (team: string, title: string, options: Record<string, string | boolean | undefined>) => {
       await runCommand(async () => {
@@ -440,25 +440,30 @@ async function main(): Promise<void> {
         const delegate = delegateName ? await resolveUserWithHints(delegateName, "create") : undefined;
         const stateName = typeof options.state === "string" ? options.state : undefined;
         // INF-552: --workflow authors a standalone managed-workflow ticket. The
-        // CLI is a thin, taxonomy-free trigger: it attaches the wf:<id> label at
-        // creation (creating it on the team if missing) and nothing else. The
-        // connector's bootstrap hook then resolves <id> against the workflow
-        // registry — the single source of truth — and either stamps the entry
-        // state or loudly rejects an unregistered id back to the requester. No
-        // allowlist and no registry knowledge live here by design.
+        // CLI is a thin, taxonomy-free trigger. It CANNOT attach a wf:<id> label
+        // directly — an agent OAuth token cannot create IssueLabels, so an
+        // unregistered/not-yet-provisioned id 400s and never reaches the engine.
+        // Instead it attaches the fixed `wf:pending` sentinel (find-only; never
+        // created here) and carries the verbatim requested id in a description
+        // marker. The connector's bootstrap — the single registry holder, which
+        // CAN create labels — resolves <id>, swaps the sentinel for the concrete
+        // wf:<id> + entry-state label (registered), or loudly rejects an
+        // unregistered id back to the requester. No allowlist, no registry
+        // knowledge, no wf:<id> creation live here by design.
         // Mutually exclusive with --state: the entry state is applied by the
         // workflow, so an explicit --state would fight the bootstrap.
         const workflowInput = typeof options.workflow === "string" ? options.workflow : undefined;
         let workflowLabelIds: string[] | undefined;
+        let workflowRequestId: string | undefined;
         if (workflowInput) {
           if (stateName) {
             throw new Error("--workflow and --state are mutually exclusive: the workflow's entry state is applied automatically at bootstrap.");
           }
           if (!teamId) {
-            throw new Error("--workflow requires a resolvable team to attach the wf:* label.");
+            throw new Error("--workflow requires a resolvable team to attach the wf:pending sentinel.");
           }
-          const wfLabelName = resolveWorkflowLabelName(workflowInput);
-          workflowLabelIds = [await resolveOrCreateLabelId(teamId, wfLabelName)];
+          workflowRequestId = normalizeWorkflowId(workflowInput);
+          workflowLabelIds = [await resolveExistingLabelId(teamId, WF_PENDING_LABEL)];
         }
         if (stateName && stateName.toLowerCase() === "backlog" && (assigneeName || delegateName)) {
           process.stderr.write(
@@ -480,6 +485,12 @@ async function main(): Promise<void> {
             process.stderr.write("Warning: converted literal \\n sequences in --description to real newlines. Prefer --description-file for Markdown/multiline descriptions.\n");
           }
           description = normalized;
+        }
+        // INF-552: carry the verbatim requested workflow id to the engine in a
+        // description marker (invisible HTML comment). Applied after description
+        // normalization so it survives both --description and --description-file.
+        if (workflowRequestId) {
+          description = appendWorkflowRequestMarker(description, workflowRequestId);
         }
         let projectId = typeof options.project === "string" ? options.project : undefined;
         if (projectId && !projectId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
