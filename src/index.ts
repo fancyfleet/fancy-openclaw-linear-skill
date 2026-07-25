@@ -1107,8 +1107,9 @@ async function main(): Promise<void> {
     .option("--comment <msg>", INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .option("--target <name>", "Delegate target for the intake re-entry. Required when the intake owner role has multiple bodies (the proxy fail-closes on multi-body roles without it). (INF-545)")
     .description("Break-glass: re-enter the ticket at workflow intake (dev-impl: any → intake)")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }) => {
       await runCommand(async () => escape(id, options), program.opts<{ human?: boolean }>().human);
     });
 

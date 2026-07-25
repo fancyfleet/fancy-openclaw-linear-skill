@@ -1626,9 +1626,17 @@ export async function stewardTakeover(
  */
 export async function escape(
   issueId: string,
-  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }
 ): Promise<SemanticResult> {
   setProxyIntent("escape");
+  // INF-545: escape re-enters at intake and the connector re-delegates to the
+  // intake owner role. When that role has multiple bodies the proxy fail-closes
+  // with `delegate-unresolved — multi-body role requires a --target`, so the
+  // break-glass path needs a way to name the body. --target flows to the proxy
+  // via the X-Openclaw-Linear-Target header (setProxyTarget), the same channel
+  // `transition` uses; the connector's cliTarget resolution consumes it. The
+  // CLI still clears the prior delegate — the proxy owns the re-delegation.
+  setProxyTarget(options?.target);
   try {
     return await executeTransition("escape", {
       issueId,
@@ -1648,6 +1656,7 @@ export async function escape(
     });
   } finally {
     setProxyIntent(undefined);
+    setProxyTarget(undefined);
   }
 }
 
