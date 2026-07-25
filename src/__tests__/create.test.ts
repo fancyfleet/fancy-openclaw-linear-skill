@@ -249,6 +249,57 @@ describe("create default state (AI-1097)", () => {
     );
   });
 
+  it("threads labelIds into the issueCreate input (INF-552 --workflow)", async () => {
+    mockedFindSemanticState.mockResolvedValue({
+      id: "state-todo",
+      name: "Todo",
+      type: "unstarted",
+      color: "#000000",
+      position: 1
+    });
+    mockedGraphQL
+      .mockResolvedValueOnce({ issueCreate: { success: true, issue: { id: "00000000-0000-4000-8000-0000000000dd", identifier: "INF-1003", title: "Dev-impl authored" } } })
+      .mockResolvedValueOnce(fetchIssueResponse);
+
+    await createIssue({
+      teamId: "team-inf",
+      title: "Dev-impl authored",
+      labelIds: ["label-wf-dev-impl"]
+    });
+
+    expect(mockedGraphQL).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("issueCreate"),
+      expect.objectContaining({
+        input: expect.objectContaining({
+          labelIds: ["label-wf-dev-impl"]
+        })
+      })
+    );
+  });
+
+  it("omits labelIds from the issueCreate input when none are provided", async () => {
+    mockedFindSemanticState.mockResolvedValue({
+      id: "state-todo",
+      name: "Todo",
+      type: "unstarted",
+      color: "#000000",
+      position: 1
+    });
+    mockedGraphQL
+      .mockResolvedValueOnce({ issueCreate: { success: true, issue: { id: "00000000-0000-4000-8000-0000000000ee", identifier: "INF-1004", title: "Plain create" } } })
+      .mockResolvedValueOnce(fetchIssueResponse);
+
+    await createIssue({
+      teamId: "team-inf",
+      title: "Plain create"
+    });
+
+    const createCall = mockedGraphQL.mock.calls[0];
+    const input = (createCall[1] as { input: Record<string, unknown> }).input;
+    expect(input.labelIds).toBeUndefined();
+  });
+
   it("warns and falls through if the team's To Do state cannot be resolved", async () => {
     mockedFindSemanticState.mockRejectedValue(new Error("No workflow state found"));
     mockedGraphQL
