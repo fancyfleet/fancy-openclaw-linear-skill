@@ -264,6 +264,21 @@ describe("dev-impl semantic verbs", () => {
       await approve("AI-200", { comment: "LGTM." });
       expect(mockAddComment).toHaveBeenCalledWith("AI-200", "LGTM.");
     });
+
+    // INF-545: approve advances into an owner-role-delegated state; when that
+    // role has multiple bodies the proxy fail-closes without a target. --target
+    // must reach the proxy via setProxyTarget (X-Openclaw-Linear-Target header),
+    // then be cleared like the intent — same contract as escape/request-changes.
+    it("threads --target to the proxy target header and clears it after", async () => {
+      await approve("AI-200", { target: "Astrid (CPO)" });
+      expect(mockSetProxyTarget).toHaveBeenCalledWith("Astrid (CPO)");
+      expect(mockSetProxyTarget).toHaveBeenLastCalledWith(undefined);
+    });
+
+    it("clears the proxy target even without --target", async () => {
+      await approve("AI-200");
+      expect(mockSetProxyTarget).toHaveBeenCalledWith(undefined);
+    });
   });
 
   describe("request-changes", () => {
