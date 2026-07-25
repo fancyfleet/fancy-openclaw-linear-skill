@@ -191,7 +191,10 @@ export async function createIssue(input: CreateIssueInput): Promise<Issue> {
         delegateId: input.delegateId,
         priority: input.priority,
         parentId: input.parentId,
-        ...(stateId ? { stateId } : {})
+        ...(stateId ? { stateId } : {}),
+        // INF-552: pre-attach workflow label(s) so the connector bootstraps the
+        // ticket into the workflow's entry state on the create webhook.
+        ...(input.labelIds && input.labelIds.length > 0 ? { labelIds: input.labelIds } : {})
       }
     }
   );

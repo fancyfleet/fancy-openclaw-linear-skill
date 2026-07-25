@@ -16,7 +16,8 @@ import { uploadFile } from "./upload";
 import { fetchImage } from "./fetch-image";
 import { listGuidanceTopics, fetchGuidanceTopic } from "./guidance";
 import { deleteIssue, deleteComment } from "./delete";
-import { listLabels, addLabels, removeLabels } from "./labels";
+import { listLabels, addLabels, removeLabels, resolveOrCreateLabelId } from "./labels";
+import { resolveWorkflowLabelName } from "./workflow-create";
 import { searchIssues } from "./search";
 import { linearTest } from "./test";
 import { runMetrics } from "./metrics";
@@ -428,6 +429,7 @@ async function main(): Promise<void> {
     .option("--priority <priority>")
     .option("--parent <parentId>")
     .option("--state <state>", "Workflow state name or semantic alias (todo, backlog, doing, thinking). Defaults to To Do.")
+    .option("--workflow <id>", "Author the ticket into a managed workflow at its entry state (e.g. dev-impl). Pre-attaches the wf:<id> label so the connector bootstraps it into intake. Mutually exclusive with --state.")
     .option("--dry-run", "Resolve inputs and print the create payload without creating an issue")
     .action(async (team: string, title: string, options: Record<string, string | boolean | undefined>) => {
       await runCommand(async () => {
@@ -437,6 +439,27 @@ async function main(): Promise<void> {
         const assignee = assigneeName ? await resolveUserWithHints(assigneeName, "create") : undefined;
         const delegate = delegateName ? await resolveUserWithHints(delegateName, "create") : undefined;
         const stateName = typeof options.state === "string" ? options.state : undefined;
+        // INF-552: --workflow authors a standalone managed-workflow ticket. The
+        // CLI is a thin, taxonomy-free trigger: it attaches the wf:<id> label at
+        // creation (creating it on the team if missing) and nothing else. The
+        // connector's bootstrap hook then resolves <id> against the workflow
+        // registry — the single source of truth — and either stamps the entry
+        // state or loudly rejects an unregistered id back to the requester. No
+        // allowlist and no registry knowledge live here by design.
+        // Mutually exclusive with --state: the entry state is applied by the
+        // workflow, so an explicit --state would fight the bootstrap.
+        const workflowInput = typeof options.workflow === "string" ? options.workflow : undefined;
+        let workflowLabelIds: string[] | undefined;
+        if (workflowInput) {
+          if (stateName) {
+            throw new Error("--workflow and --state are mutually exclusive: the workflow's entry state is applied automatically at bootstrap.");
+          }
+          if (!teamId) {
+            throw new Error("--workflow requires a resolvable team to attach the wf:* label.");
+          }
+          const wfLabelName = resolveWorkflowLabelName(workflowInput);
+          workflowLabelIds = [await resolveOrCreateLabelId(teamId, wfLabelName)];
+        }
         if (stateName && stateName.toLowerCase() === "backlog" && (assigneeName || delegateName)) {
           process.stderr.write(
             "Warning: creating a Backlog ticket with an assignee or delegate. " +
@@ -489,7 +512,8 @@ async function main(): Promise<void> {
           delegateId: delegate?.id,
           priority: parseOptionalNumber(typeof options.priority === "string" ? options.priority : undefined),
           parentId: typeof options.parent === "string" ? options.parent : undefined,
-          stateId
+          stateId,
+          labelIds: workflowLabelIds
         } as CreateIssueInput;
         if (teamId) {
           input.teamId = teamId;

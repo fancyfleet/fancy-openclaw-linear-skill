@@ -137,6 +137,12 @@ export interface CreateIssueInput {
   priority?: number;
   parentId?: string;
   stateId?: string;
+  /**
+   * INF-552: label IDs to attach at creation. Used to pre-attach a `wf:<id>`
+   * workflow label so the connector bootstraps the ticket into that workflow's
+   * entry state on the create webhook.
+   */
+  labelIds?: string[];
 }
 
 export interface UpdateIssueInput {

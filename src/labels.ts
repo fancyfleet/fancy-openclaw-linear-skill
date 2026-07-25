@@ -74,6 +74,57 @@ export async function resolveLabelIds(teamId: string, labelNames: string[]): Pro
   return resolved;
 }
 
+/**
+ * INF-552: resolve a single label to its ID, creating it on the team if it does
+ * not already exist. Used by the `--workflow` authoring trigger so a `wf:<id>`
+ * label is always attachable at create time — for a registered workflow this
+ * ensures the connector's bootstrap fires even on a team that has never used
+ * that workflow before, and for an unknown id it lets the label attach so the
+ * engine (the sole registry holder) can loudly reject the ticket rather than
+ * the CLI failing opaquely with "Label not found".
+ *
+ * Lookup is case-insensitive to avoid minting a duplicate of an
+ * existing-but-differently-cased label; creation uses the name verbatim.
+ */
+export async function resolveOrCreateLabelId(teamId: string, labelName: string): Promise<string> {
+  const data = await linearGraphQL<LabelsResponse>(
+    `
+      query ResolveLabels($teamId: String!) {
+        team(id: $teamId) {
+          labels(first: 100) {
+            nodes { id name color }
+          }
+        }
+      }
+    `,
+    { teamId }
+  );
+
+  const existing = data.team.labels.nodes.find(
+    (l) => l.name.toLowerCase() === labelName.toLowerCase()
+  );
+  if (existing) {
+    return existing.id;
+  }
+
+  const created = await linearGraphQL<{ issueLabelCreate: { success: boolean; issueLabel: { id: string } | null } }>(
+    `
+      mutation CreateLabel($input: IssueLabelCreateInput!) {
+        issueLabelCreate(input: $input) {
+          success
+          issueLabel { id }
+        }
+      }
+    `,
+    { input: { name: labelName, teamId } }
+  );
+
+  if (!created.issueLabelCreate.success || !created.issueLabelCreate.issueLabel) {
+    throw new Error(`Failed to create label "${labelName}" on team ${teamId}.`);
+  }
+  return created.issueLabelCreate.issueLabel.id;
+}
+
 export async function addLabels(issueId: string, labelNames: string[], teamId?: string): Promise<unknown> {
   const issue = await getIssue(issueId);
   const tid = teamId ?? issue.team?.id;
