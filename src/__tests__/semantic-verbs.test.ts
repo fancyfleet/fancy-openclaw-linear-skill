@@ -35,12 +35,13 @@ import {
   parkWork,
   refuseWork,
 } from "../semantic";
-import { setProxyIntent } from "../client";
+import { setProxyIntent, setProxyTarget } from "../client";
 
 jest.mock("../client", () => ({
   ...jest.requireActual("../client"),
   linearGraphQL: jest.fn(),
   setProxyIntent: jest.fn(),
+  setProxyTarget: jest.fn(),
 }));
 
 jest.mock("../auth", () => ({
@@ -71,6 +72,7 @@ jest.mock("../labels", () => ({
 }));
 
 const mockSetProxyIntent = setProxyIntent as jest.MockedFunction<typeof setProxyIntent>;
+const mockSetProxyTarget = setProxyTarget as jest.MockedFunction<typeof setProxyTarget>;
 const mockGetSelfUser = getSelfUser as jest.MockedFunction<typeof getSelfUser>;
 const mockAddComment = addComment as jest.MockedFunction<typeof addComment>;
 const mockResolveUserWithHints = resolveUserWithHints as jest.MockedFunction<typeof resolveUserWithHints>;
@@ -261,6 +263,21 @@ describe("dev-impl semantic verbs", () => {
     it("posts optional comment", async () => {
       await approve("AI-200", { comment: "LGTM." });
       expect(mockAddComment).toHaveBeenCalledWith("AI-200", "LGTM.");
+    });
+
+    // INF-545: approve advances into an owner-role-delegated state; when that
+    // role has multiple bodies the proxy fail-closes without a target. --target
+    // must reach the proxy via setProxyTarget (X-Openclaw-Linear-Target header),
+    // then be cleared like the intent — same contract as escape/request-changes.
+    it("threads --target to the proxy target header and clears it after", async () => {
+      await approve("AI-200", { target: "Astrid (CPO)" });
+      expect(mockSetProxyTarget).toHaveBeenCalledWith("Astrid (CPO)");
+      expect(mockSetProxyTarget).toHaveBeenLastCalledWith(undefined);
+    });
+
+    it("clears the proxy target even without --target", async () => {
+      await approve("AI-200");
+      expect(mockSetProxyTarget).toHaveBeenCalledWith(undefined);
     });
   });
 
@@ -599,6 +616,20 @@ describe("dev-impl semantic verbs", () => {
     it("posts optional comment", async () => {
       await escape("AI-200", { comment: "Escalating to Matt." });
       expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Escalating to Matt.");
+    });
+
+    // INF-545: multi-body intake owner roles make the proxy fail-close unless a
+    // target names the body. --target must reach the proxy via setProxyTarget
+    // (X-Openclaw-Linear-Target header), then be cleared like the intent.
+    it("threads --target to the proxy target header and clears it after", async () => {
+      await escape("AI-200", { target: "Astrid (CPO)" });
+      expect(mockSetProxyTarget).toHaveBeenCalledWith("Astrid (CPO)");
+      expect(mockSetProxyTarget).toHaveBeenLastCalledWith(undefined);
+    });
+
+    it("clears the proxy target even without --target", async () => {
+      await escape("AI-200");
+      expect(mockSetProxyTarget).toHaveBeenCalledWith(undefined);
     });
   });
 
