@@ -75,18 +75,16 @@ export async function resolveLabelIds(teamId: string, labelNames: string[]): Pro
 }
 
 /**
- * INF-552: resolve a single label to its ID, creating it on the team if it does
- * not already exist. Used by the `--workflow` authoring trigger so a `wf:<id>`
- * label is always attachable at create time — for a registered workflow this
- * ensures the connector's bootstrap fires even on a team that has never used
- * that workflow before, and for an unknown id it lets the label attach so the
- * engine (the sole registry holder) can loudly reject the ticket rather than
- * the CLI failing opaquely with "Label not found".
+ * INF-552: resolve a label that must already exist on the team, WITHOUT
+ * creating it. Used by the `--workflow` authoring trigger to attach the fixed
+ * `wf:pending` sentinel: an agent OAuth actor token cannot create IssueLabels
+ * (Linear returns 400), so the CLI never attempts creation — the sentinel is a
+ * one-time provisioned label. A missing sentinel is an infra-provisioning gap,
+ * surfaced with an actionable message rather than an opaque 400.
  *
- * Lookup is case-insensitive to avoid minting a duplicate of an
- * existing-but-differently-cased label; creation uses the name verbatim.
+ * Lookup is case-insensitive to match an existing-but-differently-cased label.
  */
-export async function resolveOrCreateLabelId(teamId: string, labelName: string): Promise<string> {
+export async function resolveExistingLabelId(teamId: string, labelName: string): Promise<string> {
   const data = await linearGraphQL<LabelsResponse>(
     `
       query ResolveLabels($teamId: String!) {
@@ -103,26 +101,14 @@ export async function resolveOrCreateLabelId(teamId: string, labelName: string):
   const existing = data.team.labels.nodes.find(
     (l) => l.name.toLowerCase() === labelName.toLowerCase()
   );
-  if (existing) {
-    return existing.id;
+  if (!existing) {
+    throw new Error(
+      `Sentinel label "${labelName}" is not provisioned on this team. ` +
+        `It must be created once (a fixed, taxonomy-free marker) before --workflow authoring can be used. ` +
+        `Ask an operator to add the "${labelName}" label to the team.`
+    );
   }
-
-  const created = await linearGraphQL<{ issueLabelCreate: { success: boolean; issueLabel: { id: string } | null } }>(
-    `
-      mutation CreateLabel($input: IssueLabelCreateInput!) {
-        issueLabelCreate(input: $input) {
-          success
-          issueLabel { id }
-        }
-      }
-    `,
-    { input: { name: labelName, teamId } }
-  );
-
-  if (!created.issueLabelCreate.success || !created.issueLabelCreate.issueLabel) {
-    throw new Error(`Failed to create label "${labelName}" on team ${teamId}.`);
-  }
-  return created.issueLabelCreate.issueLabel.id;
+  return existing.id;
 }
 
 export async function addLabels(issueId: string, labelNames: string[], teamId?: string): Promise<unknown> {
