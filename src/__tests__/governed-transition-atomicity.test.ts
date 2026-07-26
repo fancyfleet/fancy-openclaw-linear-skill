@@ -22,11 +22,12 @@ import { addComment, resolveUserWithHints, getIssue, updateIssue } from "../issu
 import { resolveLabelIds } from "../labels";
 import { findSemanticState } from "../states";
 import { acFail, submit, requestRevision } from "../semantic";
-import { setProxyCommentSatisfiedBy } from "../client";
+import { setProxyBreakGlass, setProxyCommentSatisfiedBy } from "../client";
 
 jest.mock("../client", () => ({
   ...jest.requireActual("../client"),
   linearGraphQL: jest.fn(),
+  setProxyBreakGlass: jest.fn(),
   setProxyCommentSatisfiedBy: jest.fn(),
 }));
 
@@ -65,6 +66,7 @@ const mockGetIssue = getIssue as jest.MockedFunction<typeof getIssue>;
 const mockUpdateIssue = updateIssue as jest.MockedFunction<typeof updateIssue>;
 const mockFindSemanticState = findSemanticState as jest.MockedFunction<typeof findSemanticState>;
 const mockResolveLabelIds = resolveLabelIds as jest.MockedFunction<typeof resolveLabelIds>;
+const mockSetProxyBreakGlass = setProxyBreakGlass as jest.MockedFunction<typeof setProxyBreakGlass>;
 const mockSetSatisfiedBy = setProxyCommentSatisfiedBy as jest.MockedFunction<typeof setProxyCommentSatisfiedBy>;
 
 const SELF = { id: "user-astrid", name: "Astrid (CPO)", email: "astrid@test.com" };
@@ -329,5 +331,24 @@ describe("AI-1996 — request-revision posts the comment as the sole trigger (no
     // The label-verification backstop saw the state:* label move, so the transition
     // applied and the command did not throw.
     expect(result.state).toBe("To Do");
+  });
+
+  it("threads --break-glass to the proxy header and clears it after", async () => {
+    const revisionFeedback =
+      "AC1 fails: search still returns stale results on the deployed build; see the ac-validate findings.";
+    const revisedIssue = {
+      ...preIssue,
+      state: { id: "state-todo", name: "To Do", type: "unstarted" },
+      delegate: { id: "user-sage", name: "Sage (Front End Dev)" },
+      labels: IMPLEMENTATION_LABELS,
+    };
+    mockGetIssue.mockReset();
+    mockGetIssue.mockResolvedValueOnce(preIssue);
+    mockGetIssue.mockResolvedValueOnce(revisedIssue);
+
+    await requestRevision("AI-1954", "sage", { comment: revisionFeedback, breakGlass: true });
+
+    expect(mockSetProxyBreakGlass).toHaveBeenCalledWith(true);
+    expect(mockSetProxyBreakGlass).toHaveBeenLastCalledWith(undefined);
   });
 });

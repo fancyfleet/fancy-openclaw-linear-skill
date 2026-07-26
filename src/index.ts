@@ -1057,8 +1057,9 @@ async function main(): Promise<void> {
     .option("--comment <msg>", INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .option("--break-glass", "Bypass degraded-artifact enforcement for emergency recovery (stewards only)")
     .description("Generic revision/rollback transition: proxy resolves to the `generic: revision` command for the current workflow state (e.g. request-changes)")
-    .action(async (id: string, target: string | undefined, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+    .action(async (id: string, target: string | undefined, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; breakGlass?: boolean }) => {
       await runCommand(async () => requestRevision(id, target, options), program.opts<{ human?: boolean }>().human);
     });
 
@@ -1087,8 +1088,9 @@ async function main(): Promise<void> {
     .option("--comment-file <path>", "Read comment from file (overrides --comment)")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
     .option("--target <name>", "Override default implementer target")
+    .option("--break-glass", "Bypass degraded-artifact enforcement for emergency recovery (stewards only)")
     .description("Request changes during code review (dev-impl: code-review → implementation). Requires --comment.")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }) => {
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string; breakGlass?: boolean }) => {
       await runCommand(async () => requestChanges(id, options), program.opts<{ human?: boolean }>().human);
     });
 
@@ -1124,8 +1126,9 @@ async function main(): Promise<void> {
     .option("--comment-file <path>", "Read comment from file (overrides --comment)")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
     .option("--target <name>", "Override default implementer target")
+    .option("--break-glass", "Bypass degraded-artifact enforcement for emergency recovery (stewards only)")
     .description("Deployed artifact fails the AC; send back to implementation (dev-impl: ac-validate → implementation). Requires --comment.")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }) => {
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string; breakGlass?: boolean }) => {
       await runCommand(async () => acFail(id, options), program.opts<{ human?: boolean }>().human);
     });
 
@@ -1134,8 +1137,9 @@ async function main(): Promise<void> {
     .option("--comment-file <path>", "Read comment from file (overrides --comment)")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
     .option("--target <name>", "Override default implementer target")
+    .option("--break-glass", "Bypass degraded-artifact enforcement for emergency recovery (stewards only)")
     .description("Reject during merge or deploy (dev-impl: merge/deploy → implementation). Requires --comment.")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }) => {
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string; breakGlass?: boolean }) => {
       await runCommand(async () => reject(id, options), program.opts<{ human?: boolean }>().human);
     });
 
@@ -1144,8 +1148,9 @@ async function main(): Promise<void> {
     .option("--comment-file <path>", "Read comment from file")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
     .option("--target <name>", "Delegate target for the intake re-entry. Required when the intake owner role has multiple bodies (the proxy fail-closes on multi-body roles without it). (INF-545)")
+    .option("--break-glass", "Bypass degraded-artifact enforcement for emergency recovery (stewards only)")
     .description("Break-glass: re-enter the ticket at workflow intake (dev-impl: any → intake)")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }) => {
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string; breakGlass?: boolean }) => {
       await runCommand(async () => escape(id, options), program.opts<{ human?: boolean }>().human);
     });
 

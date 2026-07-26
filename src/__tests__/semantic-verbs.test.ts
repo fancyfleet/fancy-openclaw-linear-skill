@@ -35,13 +35,14 @@ import {
   parkWork,
   refuseWork,
 } from "../semantic";
-import { setProxyIntent, setProxyTarget } from "../client";
+import { setProxyBreakGlass, setProxyIntent, setProxyTarget } from "../client";
 
 jest.mock("../client", () => ({
   ...jest.requireActual("../client"),
   linearGraphQL: jest.fn(),
   setProxyIntent: jest.fn(),
   setProxyTarget: jest.fn(),
+  setProxyBreakGlass: jest.fn(),
 }));
 
 jest.mock("../auth", () => ({
@@ -73,6 +74,7 @@ jest.mock("../labels", () => ({
 
 const mockSetProxyIntent = setProxyIntent as jest.MockedFunction<typeof setProxyIntent>;
 const mockSetProxyTarget = setProxyTarget as jest.MockedFunction<typeof setProxyTarget>;
+const mockSetProxyBreakGlass = setProxyBreakGlass as jest.MockedFunction<typeof setProxyBreakGlass>;
 const mockGetSelfUser = getSelfUser as jest.MockedFunction<typeof getSelfUser>;
 const mockAddComment = addComment as jest.MockedFunction<typeof addComment>;
 const mockResolveUserWithHints = resolveUserWithHints as jest.MockedFunction<typeof resolveUserWithHints>;
@@ -630,6 +632,12 @@ describe("dev-impl semantic verbs", () => {
     it("clears the proxy target even without --target", async () => {
       await escape("AI-200");
       expect(mockSetProxyTarget).toHaveBeenCalledWith(undefined);
+    });
+
+    it("threads --break-glass to the proxy header and clears it after", async () => {
+      await escape("AI-200", { breakGlass: true });
+      expect(mockSetProxyBreakGlass).toHaveBeenCalledWith(true);
+      expect(mockSetProxyBreakGlass).toHaveBeenLastCalledWith(undefined);
     });
   });
 

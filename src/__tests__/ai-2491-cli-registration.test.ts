@@ -58,3 +58,15 @@ describe("AI-2491: read commands are registered on the CLI (AC 1, AC 2)", () => 
     expect(help).toMatch(/read-last-comment/);
   });
 });
+
+describe("INF-780: break-glass is registered on degraded-artifact recovery commands", () => {
+  it("request-revision accepts the documented --break-glass flag", () => {
+    const help = runCli("request-revision --help");
+    expect(help).toContain("--break-glass");
+  });
+
+  it("escape accepts the documented --break-glass flag", () => {
+    const help = runCli("escape --help");
+    expect(help).toContain("--break-glass");
+  });
+});

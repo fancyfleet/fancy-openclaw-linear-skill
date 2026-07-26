@@ -1272,10 +1272,13 @@ export async function forceDeploy(
 export async function requestRevision(
   issueId: string,
   target?: string,
-  options?: { comment?: string; commentFile?: string; feedbackCategory?: string; forceDuplicate?: boolean }
+  options?: { comment?: string; commentFile?: string; feedbackCategory?: string; forceDuplicate?: boolean; breakGlass?: boolean }
 ): Promise<SemanticResult> {
   setProxyTarget(target);
   setProxyIntent("request-revision");
+  if (options?.breakGlass) {
+    setProxyBreakGlass(true);
+  }
   try {
     return await executeTransition("request-revision", {
       issueId,
@@ -1289,6 +1292,7 @@ export async function requestRevision(
   } finally {
     setProxyIntent(undefined);
     setProxyTarget(undefined);
+    setProxyBreakGlass(undefined);
   }
 }
 
@@ -1371,7 +1375,7 @@ export async function approve(
  */
 export async function requestChanges(
   issueId: string,
-  options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }
+  options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string; breakGlass?: boolean }
 ): Promise<SemanticResult> {
   const body = await (async () => {
     if (options.commentFile) {
@@ -1389,6 +1393,9 @@ export async function requestChanges(
   const target = options.target;
   setProxyTarget(target);
   setProxyIntent("request-changes");
+  if (options.breakGlass) {
+    setProxyBreakGlass(true);
+  }
   try {
     return await executeTransition("requestChanges", {
       issueId,
@@ -1404,6 +1411,7 @@ export async function requestChanges(
   } finally {
     setProxyIntent(undefined);
     setProxyTarget(undefined);
+    setProxyBreakGlass(undefined);
   }
 }
 
@@ -1485,7 +1493,7 @@ export async function validated(
  */
 export async function acFail(
   issueId: string,
-  options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }
+  options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string; breakGlass?: boolean }
 ): Promise<SemanticResult> {
   const body = await (async () => {
     if (options.commentFile) {
@@ -1503,6 +1511,9 @@ export async function acFail(
   const target = options.target;
   setProxyTarget(target);
   setProxyIntent("ac-fail");
+  if (options.breakGlass) {
+    setProxyBreakGlass(true);
+  }
   try {
     return await executeTransition("acFail", {
       issueId,
@@ -1518,6 +1529,7 @@ export async function acFail(
   } finally {
     setProxyIntent(undefined);
     setProxyTarget(undefined);
+    setProxyBreakGlass(undefined);
   }
 }
 
@@ -1530,7 +1542,7 @@ export async function acFail(
  */
 export async function reject(
   issueId: string,
-  options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }
+  options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string; breakGlass?: boolean }
 ): Promise<SemanticResult> {
   const body = await (async () => {
     if (options.commentFile) {
@@ -1548,6 +1560,9 @@ export async function reject(
   const target = options.target;
   setProxyTarget(target);
   setProxyIntent("reject");
+  if (options.breakGlass) {
+    setProxyBreakGlass(true);
+  }
   try {
     return await executeTransition("reject", {
       issueId,
@@ -1563,6 +1578,7 @@ export async function reject(
   } finally {
     setProxyIntent(undefined);
     setProxyTarget(undefined);
+    setProxyBreakGlass(undefined);
   }
 }
 
@@ -1636,7 +1652,7 @@ export async function stewardTakeover(
  */
 export async function escape(
   issueId: string,
-  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string; breakGlass?: boolean }
 ): Promise<SemanticResult> {
   setProxyIntent("escape");
   // INF-545: escape re-enters at intake and the connector re-delegates to the
@@ -1647,6 +1663,9 @@ export async function escape(
   // `transition` uses; the connector's cliTarget resolution consumes it. The
   // CLI still clears the prior delegate — the proxy owns the re-delegation.
   setProxyTarget(options?.target);
+  if (options?.breakGlass) {
+    setProxyBreakGlass(true);
+  }
   try {
     return await executeTransition("escape", {
       issueId,
@@ -1667,6 +1686,7 @@ export async function escape(
   } finally {
     setProxyIntent(undefined);
     setProxyTarget(undefined);
+    setProxyBreakGlass(undefined);
   }
 }
 
