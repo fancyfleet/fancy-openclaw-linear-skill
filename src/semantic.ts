@@ -1243,9 +1243,16 @@ export async function continueWorkflow(
  */
 export async function forceDeploy(
   issueId: string,
-  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }
 ): Promise<SemanticResult> {
   setProxyIntent("force-deploy");
+  // INF-831/INF-839: force-deploy's merge→sign-off transition auto-assigns the
+  // `requester` role, which is multi-body (astrid + ai). Without a body the proxy
+  // fail-closes with `delegate-unresolved — multi-body role requires a --target`.
+  // --target flows to the proxy via the X-Openclaw-Linear-Target header
+  // (setProxyTarget), the same channel `escape`/`continue-workflow` use; the
+  // connector's cliTarget resolution consumes it. Cleared like the intent.
+  setProxyTarget(options?.target);
   try {
     return await executeTransition("force-deploy", {
       issueId,
@@ -1258,6 +1265,7 @@ export async function forceDeploy(
     });
   } finally {
     setProxyIntent(undefined);
+    setProxyTarget(undefined);
   }
 }
 

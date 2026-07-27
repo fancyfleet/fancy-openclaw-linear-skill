@@ -366,6 +366,21 @@ describe("dev-impl semantic verbs", () => {
     it("requires a comment because this bypass is auditable", async () => {
       await expect(forceDeploy("AI-200")).rejects.toThrow("force-deploy requires a non-empty comment");
     });
+
+    // INF-831/INF-839: the merge→sign-off transition auto-assigns the multi-body
+    // `requester` role (astrid + ai). --target must reach the proxy via
+    // setProxyTarget (X-Openclaw-Linear-Target header), then be cleared like the
+    // intent — mirroring the escape --target fix.
+    it("threads --target to the proxy target header and clears it after", async () => {
+      await forceDeploy("AI-200", { comment: "PR merge verified out-of-band; advancing.", target: "Astrid (CPO)" });
+      expect(mockSetProxyTarget).toHaveBeenCalledWith("Astrid (CPO)");
+      expect(mockSetProxyTarget).toHaveBeenLastCalledWith(undefined);
+    });
+
+    it("clears the proxy target even without --target", async () => {
+      await forceDeploy("AI-200", { comment: "PR merge verified out-of-band; advancing." });
+      expect(mockSetProxyTarget).toHaveBeenLastCalledWith(undefined);
+    });
   });
 
   describe("testsReady (v8: write-tests → implementation)", () => {
