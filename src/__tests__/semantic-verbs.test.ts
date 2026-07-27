@@ -35,11 +35,12 @@ import {
   parkWork,
   refuseWork,
 } from "../semantic";
-import { setProxyIntent, setProxyTarget } from "../client";
+import { setProxyComment, setProxyIntent, setProxyTarget } from "../client";
 
 jest.mock("../client", () => ({
   ...jest.requireActual("../client"),
   linearGraphQL: jest.fn(),
+  setProxyComment: jest.fn(),
   setProxyIntent: jest.fn(),
   setProxyTarget: jest.fn(),
 }));
@@ -72,6 +73,7 @@ jest.mock("../labels", () => ({
 }));
 
 const mockSetProxyIntent = setProxyIntent as jest.MockedFunction<typeof setProxyIntent>;
+const mockSetProxyComment = setProxyComment as jest.MockedFunction<typeof setProxyComment>;
 const mockSetProxyTarget = setProxyTarget as jest.MockedFunction<typeof setProxyTarget>;
 const mockGetSelfUser = getSelfUser as jest.MockedFunction<typeof getSelfUser>;
 const mockAddComment = addComment as jest.MockedFunction<typeof addComment>;
@@ -122,6 +124,7 @@ beforeEach(() => {
     const users: Record<string, { id: string; name: string }> = {
       "Hanzo (Merge Gate)": { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
       "Igor (Back End Dev)": { id: "user-igor", name: "Igor (Back End Dev)" },
+      "Astrid (CPO)": { id: "user-astrid", name: "Astrid (CPO)" },
     };
     const user = users[name];
     if (!user) throw new Error(`Could not uniquely resolve Linear user "${name}".`);
@@ -861,6 +864,40 @@ describe("refuseWork — proxy intent guard (AI-1574)", () => {
   it("sets intent to 'refuse-work' so the proxy routes via the intent path", async () => {
     await refuseWork("AI-200", "Hanzo (Merge Gate)", { comment: "Not my scope." });
     expectIntentSetAndCleared("refuse-work");
+  });
+
+  it("forwards the comment body on the transition mutation and clears it after", async () => {
+    await refuseWork("AI-200", "Hanzo (Merge Gate)", { comment: "Not my scope." });
+
+    expect(mockSetProxyComment).toHaveBeenCalledWith("Not my scope.");
+    const lastCall = mockSetProxyComment.mock.calls[mockSetProxyComment.mock.calls.length - 1];
+    expect(lastCall[0]).toBeUndefined();
+  });
+
+  it("uses the governed update as the proxy trigger when forwarding the comment body", async () => {
+    process.env.LINEAR_PROXY_URL = "https://proxy.example.test/graphql";
+    mockGetIssue.mockResolvedValueOnce({
+      ...baseIssue,
+      labels: [{ id: "label-doing", name: "state:doing", color: "#000" }],
+    });
+    mockUpdateIssue.mockResolvedValueOnce({
+      ...baseIssue,
+      labels: [{ id: "label-todo", name: "state:todo", color: "#000" }],
+      delegate: { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
+    });
+
+    try {
+      await refuseWork("AI-200", "Hanzo (Merge Gate)", { comment: "Not my scope." });
+    } finally {
+      delete process.env.LINEAR_PROXY_URL;
+    }
+
+    expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Not my scope.");
+    expect(mockUpdateIssue).toHaveBeenCalledWith("AI-200", {
+      stateId: "state-todo",
+      delegateId: "user-hanzo",
+    });
+    expect(mockSetProxyComment).toHaveBeenCalledWith("Not my scope.");
   });
 
   it("clears intent even when refuseWork throws", async () => {

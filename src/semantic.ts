@@ -248,6 +248,7 @@ export async function refuseWork(
       commentMode: "optional-with-warning",
       delegateName: (args) => args.userName,
       commentFirst: true,
+      forwardCommentOnUpdate: true,
     });
   } finally {
     setProxyIntent(undefined);
