@@ -1047,8 +1047,9 @@ async function main(): Promise<void> {
     .option("--comment <msg>", "Reason for bypassing the PR evidence gate (required). " + INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .option("--target <name>", "Delegate target for the merge/deploy forward transition. Required when the owner role that transition auto-assigns (e.g. requester) has multiple bodies — the proxy fail-closes on multi-body roles without it. (INF-831/INF-839)")
     .description("Force the merge/deploy forward transition when PR evidence is known-good but unavailable to the gate")
-    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+    .action(async (id: string, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; target?: string }) => {
       await runCommand(async () => forceDeploy(id, options), program.opts<{ human?: boolean }>().human);
     });
 

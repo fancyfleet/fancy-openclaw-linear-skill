@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 
 import { getSelfUser } from "./auth";
-import { setProxyCommentSatisfiedBy } from "./client";
+import { setProxyComment, setProxyCommentSatisfiedBy } from "./client";
 import { getComments, getIssueHistory } from "./boards";
 import { addComment, findUserByName, resolveUserWithHints, getIssue, updateIssue } from "./issues";
 import { resolveLabelIds } from "./labels";
@@ -304,6 +304,14 @@ export interface StateTransition {
   commentTriggersProxy?: boolean;
   /** Post the transition comment only after post-trigger verification succeeds. */
   postCommentAfterVerify?: boolean;
+  /**
+   * INF-831: forward the comment body on the transition update itself (via the
+   * X-Openclaw-Comment proxy header) instead of relying on a standalone
+   * commentCreate as the proxy trigger. Needed for verbs like `refuse-work` that
+   * name an explicit delegate: the proxy's requires_comment gate reads the header
+   * on the transition mutation, not the separate comment. Disables comment-as-trigger.
+   */
+  forwardCommentOnUpdate?: boolean;
   /** Skip update when already in target state? (idempotency guard for beginWork) */
   skipIfSameState?: boolean;
   /** Include context (issue + comments) in result? (for considerWork) */
@@ -719,7 +727,8 @@ export async function executeTransition(
     isProxyGoverned &&
     body &&
     config.commentMode !== "none" &&
-    config.commentTriggersProxy !== false
+    config.commentTriggersProxy !== false &&
+    !config.forwardCommentOnUpdate
   );
 
   // 7. Post comment (before update when commentFirst or commentTriggersProxy)
@@ -834,9 +843,26 @@ export async function executeTransition(
     // (delegate → null for terminal states). The CLI must not write workflow fields
     // directly — the proxy's Layer 2 intent-path check blocks delegate/assignee
     // writes as ungoverned direct mutations.
-    updatedIssue = await updateIssue(args.issueId, {});
+    // INF-831: when forwardCommentOnUpdate is set (refuse-work), attach the comment
+    // body to this trigger update via X-Openclaw-Comment so the proxy's
+    // requires_comment gate is satisfied by the transition mutation itself.
+    if (config.forwardCommentOnUpdate && body && config.commentMode !== "none") {
+      setProxyComment(body);
+    }
+    try {
+      updatedIssue = await updateIssue(args.issueId, {});
+    } finally {
+      setProxyComment(undefined);
+    }
   } else if (!commentTriggersProxy) {
-    updatedIssue = await updateIssue(args.issueId, updatePayload);
+    if (config.forwardCommentOnUpdate && body && config.commentMode !== "none") {
+      setProxyComment(body);
+    }
+    try {
+      updatedIssue = await updateIssue(args.issueId, updatePayload);
+    } finally {
+      setProxyComment(undefined);
+    }
 
     // 9.5. Post-update label verification: if the mutation set a new state:* label
     //      but a prior state:* label persists (concurrent write, API race), issue a

@@ -80,9 +80,14 @@ export function setProxyBreakGlass(enabled: boolean | undefined): void {
  * requires_comment gate as satisfied.
  */
 let _proxyCommentSatisfiedBy: string | undefined;
+let _proxyComment: string | undefined;
 
 export function setProxyCommentSatisfiedBy(commentId: string | undefined): void {
   _proxyCommentSatisfiedBy = commentId;
+}
+
+export function setProxyComment(comment: string | undefined): void {
+  _proxyComment = comment;
 }
 
 /**
@@ -126,6 +131,7 @@ function proxyHeaders(): Record<string, string> {
   if (_proxyTarget) headers["X-Openclaw-Linear-Target"] = _proxyTarget;
   if (_proxyBreakGlass) headers["X-Openclaw-Break-Glass"] = "true";
   if (_proxyCommentSatisfiedBy) headers["X-Openclaw-Comment-Satisfied-By"] = _proxyCommentSatisfiedBy;
+  if (_proxyComment) headers["X-Openclaw-Comment"] = encodeURIComponent(_proxyComment);
   if (_proxyCodeArtifact) headers["X-Openclaw-Code-Artifact"] = _proxyCodeArtifact;
   // Percent-encoded: the reason is agent-authored free text and routinely
   // contains non-latin-1 characters (em-dashes, emoji). Node throws on a header

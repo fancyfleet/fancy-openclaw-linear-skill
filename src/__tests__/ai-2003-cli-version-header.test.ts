@@ -13,7 +13,7 @@
  */
 
 import axios from "axios";
-import { linearGraphQL, setProxyIntent } from "../client";
+import { linearGraphQL, setProxyIntent, setProxyComment } from "../client";
 import pkg from "../../package.json";
 
 jest.mock("axios");
@@ -117,5 +117,18 @@ describe("AI-2003 — CLI version header on proxied requests", () => {
     expect(headers["X-Openclaw-Linear-Cli-Version"]).toBeUndefined();
     expect(headers["X-Openclaw-Agent"]).toBeUndefined();
     expect(mockedAxios.get).not.toHaveBeenCalled();
+  });
+
+  it("percent-encodes transition comments on proxied requests", async () => {
+    process.env.LINEAR_PROXY_URL = "https://proxy.example.test/graphql";
+    setProxyComment("Needs owner: Astrid / quote \"ok\"");
+    try {
+      await linearGraphQL("mutation { ok }");
+    } finally {
+      setProxyComment(undefined);
+    }
+
+    const headers = lastPostHeaders();
+    expect(headers["X-Openclaw-Comment"]).toBe(encodeURIComponent("Needs owner: Astrid / quote \"ok\""));
   });
 });
