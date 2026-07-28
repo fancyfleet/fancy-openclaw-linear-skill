@@ -201,12 +201,15 @@ describe("executeTransition — app-user delegate + clearAssignee (AI-1821)", ()
     mockResolveUserWithHints.mockResolvedValue(GROVER);
   });
 
-  // AC4: state-machine.ts fix site — clearAssignee must NOT be overridden to undefined
-  // when delegate is an app user. The guard at state-machine.ts:612-623 currently
-  // sets assigneeId=undefined unconditionally for app-user delegates, which prevents
-  // clearing an existing assignee.
-  it("AC4/state-machine.ts: clearAssignee sends assigneeId:null even when delegate is app user", async () => {
-    const result = await executeTransition(
+  // AC4 + INF-907: on the direct-API path, a state move bundled with an app-user
+  // delegate SET is split — Linear silently drops the delegate when a stateId rides
+  // in the same issueUpdate. The state move (+ assignee clear) lands first, then a
+  // delegate-only mutation persists the delegate. The old single-mutation shape
+  // {stateId, delegateId, assigneeId:null} is exactly what reproduced live.
+  it("AC4/INF-907: state move and app-user delegate are split into two mutations", async () => {
+    mockGetIssue.mockResolvedValue({ ...baseIssue, assignee: MATT });
+
+    await executeTransition(
       "handoff-work",
       { issueId: "AI-1821", comment: "Handing to Grover." },
       {
@@ -217,21 +220,27 @@ describe("executeTransition — app-user delegate + clearAssignee (AI-1821)", ()
       }
     );
 
-    expect(mockUpdateIssue).toHaveBeenCalledTimes(1);
-    const payload = mockUpdateIssue.mock.calls[0][1] as Record<string, any>;
-    expect(payload.delegateId).toBe(GROVER.id);
-    // THE FIX: assigneeId must be null (clear), not omitted.
-    // Current bug: AI-1395 guard overrides assigneeId=null → undefined, so it's absent.
-    expect(payload.assigneeId).toBeNull();
+    expect(mockUpdateIssue).toHaveBeenCalledTimes(2);
+    // Write 1: state move + assignee clear, NO delegate (so nothing to drop).
+    const stateWrite = mockUpdateIssue.mock.calls[0][1] as Record<string, any>;
+    expect(stateWrite.stateId).toBe(THINKING_STATE.id);
+    expect(stateWrite.assigneeId).toBeNull();
+    expect(stateWrite.delegateId).toBeUndefined();
+    // Write 2: delegate-only, NO stateId (the Linear-valid persistent shape).
+    const delegateWrite = mockUpdateIssue.mock.calls[1][1] as Record<string, any>;
+    expect(delegateWrite.delegateId).toBe(GROVER.id);
+    expect(delegateWrite.assigneeId).toBeNull();
+    expect(delegateWrite.stateId).toBeUndefined();
   });
 
-  // AC2/AC3: regression — when no explicit assignee change is requested and the
-  // issue already has no assignee, the payload should not carry a specific assigneeId.
-  // This verifies the fix doesn't break the no-change path.
-  it("AC2/state-machine.ts: no assignee change when issue already has no assignee sends no assigneeId", async () => {
+  // AC2 + INF-907: delegate-to-self verbs (consider-work, manage) are app-user
+  // delegations too, so they split the same way — previously they slipped through
+  // because delegateToSelf never recorded app-ness. The delegate write must carry
+  // no stateId so the self delegate persists.
+  it("AC2/INF-907: delegate-to-self also splits state move from delegate write", async () => {
     mockGetIssue.mockResolvedValue({ ...baseIssue, assignee: null });
 
-    const result = await executeTransition(
+    await executeTransition(
       "consider-work",
       { issueId: "AI-1821", comment: "Looking at this." },
       {
@@ -243,18 +252,22 @@ describe("executeTransition — app-user delegate + clearAssignee (AI-1821)", ()
       }
     );
 
-    expect(mockUpdateIssue).toHaveBeenCalledTimes(1);
-    const payload = mockUpdateIssue.mock.calls[0][1] as Record<string, any>;
-    // No assignee change requested → assigneeId should not be in payload.
-    // (undefined is intentionally omitted from the payload.)
-    expect(payload.assigneeId).toBeUndefined();
+    expect(mockUpdateIssue).toHaveBeenCalledTimes(2);
+    const stateWrite = mockUpdateIssue.mock.calls[0][1] as Record<string, any>;
+    expect(stateWrite.stateId).toBe(THINKING_STATE.id);
+    expect(stateWrite.delegateId).toBeUndefined();
+    const delegateWrite = mockUpdateIssue.mock.calls[1][1] as Record<string, any>;
+    expect(delegateWrite.delegateId).toBe(SELF.id);
+    expect(delegateWrite.stateId).toBeUndefined();
   });
 
-  // AC3: verifies that the fix is a single-mutation solution (assigneeId:null in
-  // the primary mutation). The test passes only when the implementation sends
-  // assigneeId:null rather than requiring a follow-up mutation.
-  it("AC3: clearing is achieved in a single mutation (no follow-up needed)", async () => {
-    mockUpdateIssue.mockResolvedValue({ ...baseIssue, assignee: null, delegate: GROVER });
+  // AC3 + INF-907: the delegate is deliberately written in its OWN mutation now.
+  // The prior AI-1821 assertion ("single mutation, no follow-up") baked in the
+  // exact bundled shape Linear rejects — passing against a mock that does not model
+  // the delegate drop while failing live. INF-907 supersedes it: the follow-up
+  // delegate-only write is the fix, not a regression.
+  it("AC3/INF-907: delegate lands in a dedicated delegate-only mutation (no stateId)", async () => {
+    mockGetIssue.mockResolvedValue({ ...baseIssue, assignee: MATT });
 
     await executeTransition(
       "handoff-work",
@@ -267,11 +280,11 @@ describe("executeTransition — app-user delegate + clearAssignee (AI-1821)", ()
       }
     );
 
-    // If the fix is correct, exactly ONE mutation carries assigneeId:null.
-    // A broken fix that needs a follow-up mutation would call updateIssue twice.
-    expect(mockUpdateIssue).toHaveBeenCalledTimes(1);
-    const payload = mockUpdateIssue.mock.calls[0][1] as Record<string, any>;
-    expect(payload.assigneeId).toBeNull();
-    expect(payload.delegateId).toBe(GROVER.id);
+    expect(mockUpdateIssue).toHaveBeenCalledTimes(2);
+    const delegateWrite = mockUpdateIssue.mock.calls[1][1] as Record<string, any>;
+    expect(delegateWrite.delegateId).toBe(GROVER.id);
+    expect(delegateWrite.assigneeId).toBeNull();
+    // The invariant that makes the delegate persist: no stateId in the delegate write.
+    expect(delegateWrite.stateId).toBeUndefined();
   });
 });

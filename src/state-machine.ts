@@ -637,6 +637,11 @@ export async function executeTransition(
     const self = await getSelfUser();
     delegateId = self.id;
     delegateName = self.name;
+    // INF-907: the self delegate is an app user (agents are app users), so it is
+    // subject to the same Linear "delegate dropped when stateId is bundled" bug.
+    // Record its app-ness so the step-8 split covers delegate-to-self verbs
+    // (manage, consider-work) — previously left false, silently skipping the split.
+    delegateIsAppUser = self.app === true;
   } else if (config.clearDelegate) {
     delegateId = null;
     delegateName = null;
@@ -813,9 +818,26 @@ export async function executeTransition(
   // send these fields directly — the proxy's Layer 2 intent-path check blocks them
   // as ungoverned direct field writes.
   const updatePayload: Record<string, any> = config.omitStateId ? {} : { stateId: state!.id };
+  // INF-907: Linear silently drops an app-user delegate write when a stateId is
+  // bundled into the SAME issueUpdate — the ad-hoc handoff-work / manage paths
+  // (targetState + delegate + clearAssignee) reproduced this live, reverting the
+  // delegate to null. The governed path already avoids it by sending delegate-only
+  // (omitStateId, proxy-written). Mirror that on the direct-API path: when we would
+  // otherwise bundle a state move with an app-user delegate SET, peel the delegate
+  // into a follow-up delegate-only mutation ({ delegateId, assigneeId: null }, the
+  // Linear-valid persistent shape) issued after the state write below. Only the
+  // exact buggy shape is split — every other transition is byte-identical.
+  let deferredDelegateWrite: Record<string, any> | undefined;
   if (!isProxyGoverned) {
-    if (delegateId !== undefined) updatePayload.delegateId = delegateId;
-    if (assigneeId !== undefined) updatePayload.assigneeId = assigneeId;
+    const bundlesStateWithAppUserDelegate =
+      !config.omitStateId && delegateId != null && delegateIsAppUser;
+    if (bundlesStateWithAppUserDelegate) {
+      if (assigneeId !== undefined) updatePayload.assigneeId = assigneeId;
+      deferredDelegateWrite = { delegateId, assigneeId: null };
+    } else {
+      if (delegateId !== undefined) updatePayload.delegateId = delegateId;
+      if (assigneeId !== undefined) updatePayload.assigneeId = assigneeId;
+    }
   }
   if (addedLabelIds?.length) updatePayload.addedLabelIds = addedLabelIds;
   if (removedLabelIds?.length) updatePayload.removedLabelIds = removedLabelIds;
@@ -862,6 +884,14 @@ export async function executeTransition(
       updatedIssue = await updateIssue(args.issueId, updatePayload);
     } finally {
       setProxyComment(undefined);
+    }
+
+    // INF-907: the state move landed above without the delegate; now write the
+    // app-user delegate in its own delegate-only mutation (no stateId) so Linear
+    // persists it instead of silently dropping it. Runs only for the ad-hoc
+    // handoff-work / manage shape that would otherwise bundle the two.
+    if (deferredDelegateWrite) {
+      updatedIssue = await updateIssue(args.issueId, deferredDelegateWrite);
     }
 
     // 9.5. Post-update label verification: if the mutation set a new state:* label

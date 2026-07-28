@@ -657,13 +657,17 @@ describe("handoffWork", () => {
     const spy = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
     await handoffWork("AI-100", "Igor (Back End Dev)", { comment: "Your turn." });
     spy.mockRestore();
-    const call = mockUpdateIssue.mock.calls[0][1] as any;
-    // delegateId must be present
-    expect(call.delegateId).toBe("user-igor");
-    // assigneeId must be null (not undefined) — handoff-work sets clearAssignee,
-    // and the AI-1395 guard now correctly allows null for app-user delegates.
-    // This ensures any existing human assignee is cleared.
-    expect(call.assigneeId).toBeNull();
+    // INF-907: the app-user delegate is split into its own delegate-only write so
+    // Linear does not drop it (bundling a stateId in the same mutation reverts the
+    // delegate to null live). The state write clears the assignee; the delegate
+    // write carries the delegate with no stateId.
+    const stateWrite = mockUpdateIssue.mock.calls[0][1] as any;
+    expect(stateWrite.delegateId).toBeUndefined();
+    expect(stateWrite.assigneeId).toBeNull();
+    const delegateWrite = mockUpdateIssue.mock.calls[1][1] as any;
+    expect(delegateWrite.delegateId).toBe("user-igor");
+    expect(delegateWrite.assigneeId).toBeNull();
+    expect(delegateWrite.stateId).toBeUndefined();
   });
 
   it("clears assignee (null) when handing off to app-user delegate and a human assignee is already set (AI-1395)", async () => {
@@ -679,11 +683,14 @@ describe("handoffWork", () => {
     const spy = jest.spyOn(process.stderr, "write").mockImplementation(() => true);
     await handoffWork("AI-100", "Igor (Back End Dev)", { comment: "Your turn." });
     spy.mockRestore();
-    const call = mockUpdateIssue.mock.calls[0][1] as any;
-    expect(call.delegateId).toBe("user-igor");
-    // assigneeId must be null to clear the existing human assignee.
-    // The AI-1395 guard allows null (only blocks specific non-null IDs).
-    expect(call.assigneeId).toBeNull();
+    // INF-907: delegate split into its own write; both writes clear the assignee,
+    // and the delegate write carries no stateId so Linear persists the delegate.
+    const stateWrite = mockUpdateIssue.mock.calls[0][1] as any;
+    expect(stateWrite.assigneeId).toBeNull();
+    const delegateWrite = mockUpdateIssue.mock.calls[1][1] as any;
+    expect(delegateWrite.delegateId).toBe("user-igor");
+    expect(delegateWrite.assigneeId).toBeNull();
+    expect(delegateWrite.stateId).toBeUndefined();
   });
 
   it("preserves the state:* projection label and native column on a dev-impl handoff — owner change is not a state change (AI-1494)", async () => {
