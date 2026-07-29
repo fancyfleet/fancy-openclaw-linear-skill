@@ -263,6 +263,7 @@ export async function getSelfUser(): Promise<User> {
         id
         name
         email
+        app
       }
     }
   `);

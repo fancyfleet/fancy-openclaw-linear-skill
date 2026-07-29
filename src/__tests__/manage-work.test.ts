@@ -55,7 +55,11 @@ const baseIssue: any = {
 beforeEach(() => {
   jest.resetAllMocks();
   mockGetIssue.mockResolvedValue(baseIssue);
-  mockGetSelfUser.mockResolvedValue({ id: "user-hanzo", name: "Hanzo (Merge Gate)", email: "hanzo@test.com" });
+  // INF-995: agents are app users. self.app must be true so the INF-907
+  // delegate/stateId split fires for the delegate-to-self verbs (manage,
+  // consider-work). The old mock omitted `app`, encoding the very bug this
+  // ticket fixes (self.app undefined → split skipped → delegate dropped).
+  mockGetSelfUser.mockResolvedValue({ id: "user-hanzo", name: "Hanzo (Merge Gate)", email: "hanzo@test.com", app: true });
   const _manageUserMap: Record<string, { id: string; name: string }> = {
     "user-hanzo": { id: "user-hanzo", name: "Hanzo (Merge Gate)" },
     "user-matt": { id: "user-matt", name: "Matt Henry" },
@@ -85,17 +89,29 @@ beforeEach(() => {
 });
 
 describe("manageWork", () => {
-  it("transitions to Managing and delegates to self", async () => {
+  it("transitions to Managing and delegates to self in a SEPARATE delegate-only write (INF-995/INF-907)", async () => {
     const result = await manageWork("AI-100");
     expect(mockFindSemanticState).toHaveBeenCalledWith("team-1", "managing");
+
+    // INF-907 split: the state move must NOT bundle the app-user delegate —
+    // Linear silently drops a delegate bundled with a stateId (AI-1395). The
+    // state write carries stateId (+ assigneeId:null) but no delegateId.
     expect(mockUpdateIssue).toHaveBeenCalledWith(
       "AI-100",
-      expect.objectContaining({
-        stateId: "state-managing",
-        delegateId: "user-hanzo",
-        assigneeId: null,
-      }),
+      expect.objectContaining({ stateId: "state-managing", assigneeId: null }),
     );
+    const stateCall = mockUpdateIssue.mock.calls.find((c) => "stateId" in (c[1] ?? {}));
+    expect(stateCall).toBeDefined();
+    expect(stateCall![1]).not.toHaveProperty("delegateId");
+
+    // The delegate is written on its own — { delegateId, assigneeId:null }, the
+    // Linear-valid persistent shape — never bundled with a stateId.
+    const delegateCall = mockUpdateIssue.mock.calls.find(
+      (c) => "delegateId" in (c[1] ?? {}) && !("stateId" in (c[1] ?? {})),
+    );
+    expect(delegateCall).toBeDefined();
+    expect(delegateCall![1]).toEqual({ delegateId: "user-hanzo", assigneeId: null });
+
     expect(result.state).toBe("Managing");
     expect(result.delegate).toBe("Hanzo (Merge Gate)");
   });

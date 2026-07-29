@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { checkAuth, ensureApiKey, resolveAgentName, resolveAgentNameFromCwd } from "../auth";
+import { checkAuth, ensureApiKey, getSelfUser, resolveAgentName, resolveAgentNameFromCwd } from "../auth";
 import { LinearApiError, linearGraphQL } from "../client";
 
 jest.mock("../client", () => ({
@@ -61,6 +61,61 @@ describe("checkAuth", () => {
     mockedLinearGraphQL.mockRejectedValue(new LinearApiError("Unauthorized", "UNAUTHORIZED"));
 
     await expect(checkAuth()).rejects.toThrow("LINEAR_API_KEY is invalid: Unauthorized");
+  });
+});
+
+describe("getSelfUser (INF-995: viewer query must select `app`)", () => {
+  const ENV_KEYS = ["LINEAR_OAUTH_TOKEN", "LINEAR_API_KEY", "LINEAR_DEVELOPER_TOKEN", "HOME"] as const;
+  const saved: Partial<Record<typeof ENV_KEYS[number], string | undefined>> = {};
+  let cwdSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    mockedLinearGraphQL.mockReset();
+    for (const key of ENV_KEYS) {
+      saved[key] = process.env[key];
+      delete process.env[key];
+    }
+    process.env.HOME = "/tmp/no-linear-secrets-home";
+    process.env.LINEAR_API_KEY = "test-token";
+    cwdSpy = jest.spyOn(process, "cwd").mockReturnValue("/tmp/no-linear-secrets-cwd");
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    cwdSpy.mockRestore();
+  });
+
+  // INF-995: getSelfUser omitting `app` from the viewer selection left self.app
+  // undefined, so the delegate-to-self verbs (manage, consider-work) skipped the
+  // INF-907 delegate/stateId split and Linear silently dropped the app-user
+  // delegate (AI-1395) → NULL-DELEGATE stall. The query MUST request `app`.
+  it("selects the `app` field in the viewer query", async () => {
+    mockedLinearGraphQL.mockResolvedValue({
+      viewer: { id: "user-1", name: "Igor", email: "igor@example.com", app: true },
+    });
+
+    await getSelfUser();
+
+    expect(mockedLinearGraphQL).toHaveBeenCalledTimes(1);
+    const query = mockedLinearGraphQL.mock.calls[0][0] as string;
+    // Assert the field lands inside the viewer selection set, not just anywhere.
+    expect(query).toMatch(/viewer\s*{[^}]*\bapp\b[^}]*}/);
+  });
+
+  it("surfaces the viewer's `app` flag to the caller", async () => {
+    mockedLinearGraphQL.mockResolvedValue({
+      viewer: { id: "user-1", name: "Igor", email: "igor@example.com", app: true },
+    });
+
+    await expect(getSelfUser()).resolves.toEqual({
+      id: "user-1",
+      name: "Igor",
+      email: "igor@example.com",
+      app: true,
+    });
   });
 });
 
