@@ -10,6 +10,12 @@
  */
 
 import fs from "node:fs/promises";
+import { deriveCodeArtifactFromGit } from "../git-artifact";
+
+jest.mock("../git-artifact", () => ({
+  deriveCodeArtifactFromGit: jest.fn(),
+}));
+const mockDeriveArtifact = deriveCodeArtifactFromGit as jest.MockedFunction<typeof deriveCodeArtifactFromGit>;
 
 import { getSelfUser } from "../auth";
 import { addComment, resolveUserWithHints, getIssue, updateIssue } from "../issues";
@@ -115,6 +121,7 @@ const invalidState = { id: "state-invalid", name: "Invalid", type: "canceled" };
 
 beforeEach(() => {
   jest.resetAllMocks();
+  mockDeriveArtifact.mockReturnValue({ branch: "feature/test-branch", sha: "abc1234" });
   mockGetIssue.mockResolvedValue(baseIssue);
   mockResolveLabelIds.mockImplementation(async (_teamId: string, names: string[]) =>
     names.map((n) => LABEL_ID_MAP[n] ?? `label-unknown-${n}`)
