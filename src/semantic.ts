@@ -15,7 +15,7 @@ import {
   isMattTarget,
   logRefusal,
 } from "./matt-escalation-guard";
-import { setProxyIntent, setProxyTarget, setProxyCodeArtifact, setProxySubstitutionReason, setProxyBreakGlass } from "./client";
+import { setProxyIntent, setProxyTarget, setProxyRewindTarget, setProxyMigrateTarget, setProxyCodeArtifact, setProxySubstitutionReason, setProxyBreakGlass } from "./client";
 import { getComments, getIssueHistory } from "./boards";
 import { getSelfUser } from "./auth";
 import { addComment, getIssue, resolveAgentSlugForDisplayName, resolveUserWithHints, updateIssue } from "./issues";
@@ -1764,5 +1764,62 @@ export async function transition(
     setProxyIntent(undefined);
     setProxyTarget(undefined);
     setProxyBreakGlass(undefined);
+  }
+}
+
+/**
+ * linear rewind <id> --target <state>
+ *
+ * Break-glass: drive a stranded ticket to an arbitrary target state, resolved
+ * server-side by the proxy (no client-side state lookup — the raw state name
+ * is passed through the X-Openclaw-Rewind-Target header).
+ */
+export async function rewind(
+  issueId: string,
+  options: { target: string; comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<SemanticResult> {
+  setProxyIntent("rewind");
+  setProxyRewindTarget(options.target);
+  try {
+    return await executeTransition("rewind", {
+      issueId,
+      comment: options.comment,
+      commentFile: options.commentFile,
+      forceDuplicate: options.forceDuplicate,
+    }, {
+      commentMode: "optional",
+      omitStateId: true,
+    });
+  } finally {
+    setProxyIntent(undefined);
+    setProxyRewindTarget(undefined);
+  }
+}
+
+/**
+ * linear migrate-state <id> --target <state>
+ *
+ * Same as rewind but with a distinct intent/header pair (X-Openclaw-Migrate-Target)
+ * so the proxy can apply different legality rules per verb.
+ */
+export async function migrateState(
+  issueId: string,
+  options: { target: string; comment?: string; commentFile?: string; forceDuplicate?: boolean }
+): Promise<SemanticResult> {
+  setProxyIntent("migrate-state");
+  setProxyMigrateTarget(options.target);
+  try {
+    return await executeTransition("migrate-state", {
+      issueId,
+      comment: options.comment,
+      commentFile: options.commentFile,
+      forceDuplicate: options.forceDuplicate,
+    }, {
+      commentMode: "optional",
+      omitStateId: true,
+    });
+  } finally {
+    setProxyIntent(undefined);
+    setProxyMigrateTarget(undefined);
   }
 }

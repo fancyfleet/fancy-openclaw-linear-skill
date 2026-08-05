@@ -62,6 +62,18 @@ export function setProxyTarget(target: string | undefined): void {
   _proxyTarget = target;
 }
 
+let _proxyRewindTarget: string | undefined;
+
+export function setProxyRewindTarget(target: string | undefined): void {
+  _proxyRewindTarget = target;
+}
+
+let _proxyMigrateTarget: string | undefined;
+
+export function setProxyMigrateTarget(target: string | undefined): void {
+  _proxyMigrateTarget = target;
+}
+
 let _proxyBreakGlass: boolean | undefined;
 
 /**
@@ -129,6 +141,8 @@ function proxyHeaders(): Record<string, string> {
   if (_proxyIntent) headers["X-Openclaw-Linear-Intent"] = _proxyIntent;
   if (_proxyCommandId) headers["X-Openclaw-Command-Id"] = _proxyCommandId;
   if (_proxyTarget) headers["X-Openclaw-Linear-Target"] = _proxyTarget;
+  if (_proxyRewindTarget) headers["X-Openclaw-Rewind-Target"] = _proxyRewindTarget;
+  if (_proxyMigrateTarget) headers["X-Openclaw-Migrate-Target"] = _proxyMigrateTarget;
   if (_proxyBreakGlass) headers["X-Openclaw-Break-Glass"] = "true";
   if (_proxyCommentSatisfiedBy) headers["X-Openclaw-Comment-Satisfied-By"] = _proxyCommentSatisfiedBy;
   if (_proxyComment) headers["X-Openclaw-Comment"] = encodeURIComponent(_proxyComment);
@@ -206,6 +220,18 @@ export interface GraphQLErrorDetail {
 interface LinearGraphQLResponse<T> {
   data?: T;
   errors?: GraphQLErrorDetail[];
+}
+
+/**
+ * Sibling field the proxy attaches to a mutation response body (alongside
+ * `data`) to signal a no-op write — e.g. a state transition that didn't
+ * actually change anything server-side. Distinct from GraphQL `errors`,
+ * which the proxy doesn't populate for this case since the mutation itself
+ * succeeded; only the underlying state change didn't apply.
+ */
+interface WorkflowTransitionSignal {
+  status: string;
+  reason?: string;
 }
 
 interface HintRule {
@@ -337,6 +363,15 @@ export async function linearGraphQL<T>(
         await ensureProxyCompatibility(apiUrl, headers);
       }
       const response = await executeGraphQL<T>(apiUrl, query, variables, headers);
+
+      const workflowTransition = (response.data as unknown as { _workflowTransition?: WorkflowTransitionSignal })
+        ._workflowTransition;
+      if (workflowTransition?.status === "failed") {
+        throw new LinearApiError(
+          `Linear write did not apply${workflowTransition.reason ? `: ${workflowTransition.reason}` : ""} — the proxy detected a no-op write.`,
+          "WORKFLOW_TRANSITION_FAILED"
+        );
+      }
 
       if (response.data.errors?.length) {
         debugDump("GraphQL errors", response.data.errors);
