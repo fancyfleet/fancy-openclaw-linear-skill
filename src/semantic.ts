@@ -23,6 +23,7 @@ import { createDuplicateRelation } from "./relations";
 import { findStateByType } from "./states";
 import { resolveLabelIds } from "./labels";
 import { buildArtifactMarker, formatCodeArtifact, parseCodeArtifact } from "./artifact";
+import { deriveCodeArtifactFromGit } from "./git-artifact";
 import { IssueHistory } from "./types";
 
 const AGENT_REVIEW_LABEL = "gate:agent-review";
@@ -1306,19 +1307,58 @@ export async function requestRevision(
  *
  * Submit implementation work for code review.
  * dev-impl: implementation → code-review (dev action)
+ *
+ * AI-2479 — with codeArtifact: declares the `<branch>@<sha>` this submission is
+ * about. Mirrors handoffWork's artifact declaration: the declaration is recorded
+ * in the comment as an HTML marker and sent to the proxy, which refuses a
+ * submission that silently declares an artifact other than the one the caller
+ * was handed.
  */
 export async function submit(
   issueId: string,
   target?: string,
-  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; codeArtifact?: string }
 ): Promise<SemanticResult> {
+  // Parse before any mutation: a malformed operand must fail loudly and inertly.
+  // Explicit --code-artifact takes precedence; otherwise derive from cwd git state (INF-1267).
+  // Git derivation failure without an explicit flag is a hard stop — no partial/blind transition.
+  let artifact: { branch: string; sha: string } | undefined;
+  if (options?.codeArtifact) {
+    artifact = parseCodeArtifact(options.codeArtifact);
+  } else {
+    const derived = deriveCodeArtifactFromGit();
+    artifact = derived;
+  }
+
+  let comment = options?.comment;
+  let commentFile = options?.commentFile;
+
+  // AI-2479: record the declared artifact in the comment body, so the record
+  // lives in the ticket timeline rather than in connector process memory — a
+  // submit and its review can be days apart, and neither connector store
+  // survives a restart.
+  if (artifact) {
+    if (commentFile) {
+      comment = (await fs.readFile(commentFile, "utf8")).trim();
+      commentFile = undefined;
+    }
+    // Resolve the recipient (reviewer) so the marker records WHO owes the next
+    // disclosure. Fails loudly on a bad name before the comment is posted.
+    const recipient = target
+      ? await resolveUserWithHints(target, "submit")
+      : await getSelfUser();
+    const body = comment?.trim() || `Submitting. Artifact: ${formatCodeArtifact(artifact)}`;
+    comment = `${body}\n\n${buildArtifactMarker(artifact, recipient.id)}`;
+  }
+
+  if (artifact) setProxyCodeArtifact(formatCodeArtifact(artifact));
   setProxyTarget(target);
   setProxyIntent("submit");
   try {
     return await executeTransition("submit", {
       issueId,
-      comment: options?.comment,
-      commentFile: options?.commentFile,
+      comment,
+      commentFile,
       forceDuplicate: options?.forceDuplicate,
       userName: target,
     }, {
@@ -1330,6 +1370,7 @@ export async function submit(
   } finally {
     setProxyIntent(undefined);
     setProxyTarget(undefined);
+    setProxyCodeArtifact(undefined);
   }
 }
 

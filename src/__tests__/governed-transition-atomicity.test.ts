@@ -17,6 +17,12 @@
  */
 
 import { getSelfUser } from "../auth";
+import { deriveCodeArtifactFromGit } from "../git-artifact";
+
+jest.mock("../git-artifact", () => ({
+  deriveCodeArtifactFromGit: jest.fn(),
+}));
+const mockDeriveArtifact = deriveCodeArtifactFromGit as jest.MockedFunction<typeof deriveCodeArtifactFromGit>;
 import { getComments } from "../boards";
 import { addComment, resolveUserWithHints, getIssue, updateIssue } from "../issues";
 import { resolveLabelIds } from "../labels";
@@ -111,6 +117,7 @@ function selfComment(body: string, ageSeconds: number): any {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockDeriveArtifact.mockReturnValue({ branch: "feature/test-branch", sha: "abc1234" });
   process.env.LINEAR_PROXY_URL = "http://localhost:3100/proxy";
   process.env.LINEAR_POST_TRANSITION_VERIFY_DELAY_MS = "0"; // AI-2110: no real sleep in tests
   mockGetSelfUser.mockResolvedValue(SELF as any);

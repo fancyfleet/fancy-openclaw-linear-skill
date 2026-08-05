@@ -10,6 +10,12 @@
  */
 
 import fs from "node:fs/promises";
+import { deriveCodeArtifactFromGit } from "../git-artifact";
+
+jest.mock("../git-artifact", () => ({
+  deriveCodeArtifactFromGit: jest.fn(),
+}));
+const mockDeriveArtifact = deriveCodeArtifactFromGit as jest.MockedFunction<typeof deriveCodeArtifactFromGit>;
 
 import { getSelfUser } from "../auth";
 import { addComment, resolveUserWithHints, getIssue, updateIssue } from "../issues";
@@ -115,6 +121,7 @@ const invalidState = { id: "state-invalid", name: "Invalid", type: "canceled" };
 
 beforeEach(() => {
   jest.resetAllMocks();
+  mockDeriveArtifact.mockReturnValue({ branch: "feature/test-branch", sha: "abc1234" });
   mockGetIssue.mockResolvedValue(baseIssue);
   mockResolveLabelIds.mockImplementation(async (_teamId: string, names: string[]) =>
     names.map((n) => LABEL_ID_MAP[n] ?? `label-unknown-${n}`)
@@ -243,9 +250,11 @@ describe("dev-impl semantic verbs", () => {
       expect(mockSetProxyIntent).toHaveBeenCalledWith(undefined);
     });
 
-    it("posts optional comment", async () => {
+    it("posts optional comment (with auto-derived artifact marker, INF-1267)", async () => {
       await submit("AI-200", undefined, { comment: "Ready for review." });
-      expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Ready for review.");
+      const callBody = mockAddComment.mock.calls[0][1] as string;
+      expect(callBody).toContain("Ready for review.");
+      expect(callBody).toContain("<!-- artifact-disclosure:");
     });
   });
 

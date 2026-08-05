@@ -1068,8 +1068,9 @@ async function main(): Promise<void> {
     .option("--comment <msg>", INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .option("--code-artifact <branch@sha>", "Declare the code artifact this submission is about, e.g. feature/AI-2479-guard@c81dfe0. Recorded on the ticket; the proxy refuses an undeclared substitution at the next handoff.")
     .description("Submit implementation for code review (dev-impl: implementation → code-review)")
-    .action(async (id: string, target: string | undefined, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+    .action(async (id: string, target: string | undefined, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; codeArtifact?: string }) => {
       await runCommand(async () => submit(id, target, options), program.opts<{ human?: boolean }>().human);
     });
 
