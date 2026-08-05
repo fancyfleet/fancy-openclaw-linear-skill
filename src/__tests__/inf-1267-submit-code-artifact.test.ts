@@ -103,17 +103,23 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockGetSelfUser.mockResolvedValue({ id: "user-igor", name: "Igor (Back End Dev)", email: "igor@test.com" } as never);
   mockResolveUserWithHints.mockResolvedValue({ id: "user-igor", name: "Igor (Back End Dev)", app: true } as never);
-  mockGetIssue.mockResolvedValue(baseIssue as never);
+  // Return the issue with delegate populated so executeTransition's post-mutation
+  // delegate-verification (AI-1769 AC3) sees the expected state.
+  mockGetIssue.mockResolvedValue({ ...baseIssue, delegate: { id: "user-igor", name: "Igor (Back End Dev)" } } as never);
   mockFindSemanticState.mockImplementation(async (_teamId: string, semantic: string) => {
     if (!(semantic.toLowerCase() in SEMANTIC_STATE_MAP)) {
       throw new Error(`Unknown semantic state "${semantic}"`);
     }
     return thinkingState as never;
   });
-  mockUpdateIssue.mockImplementation(async (id: string, input: any) => ({
-    ...baseIssue,
-    ...input,
-  }) as never);
+  mockUpdateIssue.mockImplementation(async (id: string, input: any) => {
+    const result: any = { ...baseIssue, ...input };
+    // Simulate Linear API: delegateId input becomes delegate object on output.
+    if (input.delegateId && !result.delegate) {
+      result.delegate = { id: input.delegateId, name: "Igor (Back End Dev)" };
+    }
+    return result as any;
+  });
   mockAddComment.mockResolvedValue({
     issueId: "issue-1",
     commentId: "comment-uuid",

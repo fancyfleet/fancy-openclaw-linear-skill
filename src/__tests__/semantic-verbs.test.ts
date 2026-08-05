@@ -243,9 +243,11 @@ describe("dev-impl semantic verbs", () => {
       expect(mockSetProxyIntent).toHaveBeenCalledWith(undefined);
     });
 
-    it("posts optional comment", async () => {
+    it("posts optional comment (with auto-derived artifact marker, INF-1267)", async () => {
       await submit("AI-200", undefined, { comment: "Ready for review." });
-      expect(mockAddComment).toHaveBeenCalledWith("AI-200", "Ready for review.");
+      const callBody = mockAddComment.mock.calls[0][1] as string;
+      expect(callBody).toContain("Ready for review.");
+      expect(callBody).toContain("<!-- artifact-disclosure:");
     });
   });
 
