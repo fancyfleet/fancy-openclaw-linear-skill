@@ -228,10 +228,17 @@ interface LinearGraphQLResponse<T> {
  * actually change anything server-side. Distinct from GraphQL `errors`,
  * which the proxy doesn't populate for this case since the mutation itself
  * succeeded; only the underlying state change didn't apply.
+ *
+ * INF-1276: the signal also carries a gate BLOCK (status: "blocked") — e.g.
+ * the INF-1060 push-before-claim gate refusing a comment-carried submit that
+ * supplied no published artifact / no origin repository context. `code`/`detail`
+ * carry the blocker identity and the human-readable reason.
  */
 interface WorkflowTransitionSignal {
   status: string;
   reason?: string;
+  code?: string;
+  detail?: string;
 }
 
 interface HintRule {
@@ -366,9 +373,16 @@ export async function linearGraphQL<T>(
 
       const workflowTransition = (response.data as unknown as { _workflowTransition?: WorkflowTransitionSignal })
         ._workflowTransition;
-      if (workflowTransition?.status === "failed") {
+      if (workflowTransition?.status === "failed" || workflowTransition?.status === "blocked") {
+        // INF-1276: a gate-blocked governed forward (status: "blocked") is NOT a
+        // success — the comment may have posted, but the transition tuple did not
+        // land. Surface the blocker `detail` (e.g. the push-before-claim
+        // no-artifact / no-origin-repository-context reason) as a thrown error so
+        // agents stop retrying blindly. `detail` takes precedence over the legacy
+        // `reason` field.
+        const blockerDetail = workflowTransition.detail ?? workflowTransition.reason;
         throw new LinearApiError(
-          `Linear write did not apply${workflowTransition.reason ? `: ${workflowTransition.reason}` : ""} — the proxy detected a no-op write.`,
+          `Linear write did not apply${blockerDetail ? `: ${blockerDetail}` : ""} — the proxy ${workflowTransition.status === "blocked" ? "blocked" : "detected a no-op"} write.`,
           "WORKFLOW_TRANSITION_FAILED"
         );
       }
