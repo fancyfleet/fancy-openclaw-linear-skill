@@ -236,6 +236,18 @@ export async function refuseWork(
   options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
 ): Promise<SemanticResult> {
   setProxyIntent("refuse-work");
+  // INF-1516: forward the explicit refuse target as the proxy target
+  // (X-Openclaw-Linear-Target → connector `cliTarget`) so a governed multi-body
+  // role seats THIS agent instead of re-pooling to bodies[0]. `refuse-work` is a
+  // governed transition command (connector workflow-gate), and the connector's
+  // resolveTransitionDelegate honours cliTarget first — but only if the CLI sends
+  // it. handoffWork already forwards its target on governed tickets; refuseWork
+  // never did, so `refuse-work <id> <agent>` on a governed `implementation` ticket
+  // silently dropped the target and the connector re-pooled (the INF-1507/ENG-58/
+  // ENG-43 stewardship-reseat stalls). Sent unconditionally: on an ungoverned
+  // ticket the connector only reads cliTarget inside its governed transition path,
+  // so the header is inert there.
+  setProxyTarget(resolveAgentSlugForDisplayName(delegateName));
   try {
     return await executeTransition("refuseWork", {
       issueId,
@@ -253,6 +265,7 @@ export async function refuseWork(
     });
   } finally {
     setProxyIntent(undefined);
+    setProxyTarget(undefined);
   }
 }
 
