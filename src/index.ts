@@ -569,17 +569,34 @@ async function main(): Promise<void> {
     }, program.opts<{ human?: boolean }>().human);
   });
 
-  program.command("edit").argument("<id>").option("--title <title>").option("--description <description>").action(async (id: string, options: { title?: string; description?: string }) => {
+  program.command("edit").argument("<id>").option("--title <title>").option("--description <description>").option("--description-file <path>", "Read Markdown/multiline description from file").action(async (id: string, options: { title?: string; description?: string; descriptionFile?: string }) => {
     await runCommand(async () => {
-      if (!options.title && !options.description) {
-        throw new Error("At least one of --title or --description is required.");
+      if (!options.title && !options.description && !options.descriptionFile) {
+        throw new Error("At least one of --title, --description, or --description-file is required.");
       }
       const input: UpdateIssueInput = {};
       if (options.title) {
         input.title = options.title;
       }
-      if (options.description) {
-        input.description = options.description;
+      // INF-1508: mirror create's --description-file + normalizeCliDescription
+      // guard so `linear edit` never stores a JSON-stringified description
+      // (literal \n + surrounding quotes) that wedges downstream parsers.
+      let description = typeof options.description === "string" ? options.description : undefined;
+      const descriptionFile = typeof options.descriptionFile === "string" ? options.descriptionFile : undefined;
+      if (descriptionFile) {
+        if (description) {
+          throw new Error("Use either --description or --description-file, not both.");
+        }
+        description = await fs.readFile(descriptionFile, "utf8");
+      } else if (description) {
+        const normalized = normalizeCliDescription(description);
+        if (normalized !== description) {
+          process.stderr.write("Warning: converted literal \\n sequences in --description to real newlines. Prefer --description-file for Markdown/multiline descriptions.\n");
+        }
+        description = normalized;
+      }
+      if (description) {
+        input.description = description;
       }
       return updateIssue(id, input);
     }, program.opts<{ human?: boolean }>().human);
