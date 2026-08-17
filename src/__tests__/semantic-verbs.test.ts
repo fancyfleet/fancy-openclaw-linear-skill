@@ -57,6 +57,7 @@ jest.mock("../auth", () => ({
 }));
 
 jest.mock("../issues", () => ({
+  ...jest.requireActual("../issues"),
   addComment: jest.fn(),
   findUserByName: jest.fn(),
   resolveUserWithHints: jest.fn(),
