@@ -15,7 +15,7 @@
  * `setProxyTarget(normalizeAgentTarget(delegateName))` and clears it in
  * `finally`, exactly like the governed `handoffWork` path.
  *
- * INF-1628: part A originally used a `resolveAgentSlugForDisplayName` slug-map
+ * INF-1628: part A originally used an agent-slug lookup table
  * that carried stale parenthesized display names and broke every slug-targeted
  * verb once Matt de-parenthesized the agents' Linear names. The map is gone;
  * `normalizeAgentTarget` derives the bare slug from the typed input (first token,
@@ -149,7 +149,7 @@ describe("INF-1516 defect 1A — refuse-work forwards the explicit target", () =
   });
 });
 
-// INF-1628: normalizeAgentTarget replaces the drift-prone AGENT_SLUG_MAP. It
+// INF-1628: normalizeAgentTarget replaces the drift-prone agent-slug table. It
 // carries whatever was typed to the proxy as a bare, lowercased first-token slug.
 describe("INF-1628 — normalizeAgentTarget (proxy target, table-free)", () => {
   it.each([

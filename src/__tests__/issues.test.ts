@@ -579,9 +579,9 @@ describe("findUserByName", () => {
     await expect(findUserByName("sig")).rejects.toThrow("Could not uniquely resolve");
   });
 
-// INF-1628: AGENT_SLUG_MAP carried stale parenthesized display names ("Charles
-// (Engineering Head)", "Grover (OpenClaw Mechanic)"). Matt removed the
-// parentheticals from every agent's Linear name, so the map forced a query for a
+// INF-1628: the retired agent-slug table carried stale parenthesized display
+// names ("Charles (Engineering Head)", "Grover (OpenClaw Mechanic)"). Matt removed
+// the parentheticals from every agent's Linear name, so the map forced a query for a
 // name no user has → 0 results → "Could not uniquely resolve", breaking every
 // slug-targeted verb (handoff-work, refuse-work, continue-workflow <slug>).
 // With the map gone, the typed slug is an exact case-insensitive match on the
