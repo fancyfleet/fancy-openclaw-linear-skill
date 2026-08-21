@@ -641,79 +641,49 @@ export async function getMyManaging(): Promise<Issue[]> {
 }
 
 /**
- * Agent slug → canonical Linear display name map.
+ * Normalize an agent target for the `X-Openclaw-Linear-Target` proxy header.
  *
- * Agent slugs are short names (e.g. `signe`, `ken`, `fin`) used in
- * workflow delegation commands like `continue-workflow <id> <slug>`.
- * They differ from full Linear display names. Resolving them through
- * `containsIgnoreCase` alone causes substring collisions when a slug
- * is a prefix of multiple user names (e.g. `ken` matches both
- * "Ken (Private Tutor)" and "Kenji (Game Director)").
+ * The connector resolves `cliTarget` server-side against `agents.json`, so the
+ * header must carry the bare agent slug (e.g. `charles`, `grover`) — never a
+ * Linear display name. Agent slugs are lowercase single tokens, so we normalize
+ * whatever was typed to lowercase and take the first token: a bare slug passes
+ * through unchanged, and a display name that is now just the capitalized slug
+ * (parentheticals were removed from every agent's Linear name — INF-1628)
+ * collapses back to the slug. A UUID has no whitespace, so the first-token step
+ * is inert and it passes through lowercased (hex, so lossless).
  *
- * This map provides an unambiguous expansion in findUserByName.
- * Update when agents are added or change display names in Linear.
+ * There is deliberately NO slug→display-name string table here. A hardcoded
+ * table drifts the instant Matt renames a user in Linear (the INF-1628 defect:
+ * every `charles`/`grover`/… entry carried a stale parenthesized name and any
+ * slug-targeted verb failed with "Could not uniquely resolve"). Identity now
+ * comes from Linear's own user list via `findUserByName`, and the proxy target
+ * carries the slug as typed.
  */
-const AGENT_SLUG_MAP: Record<string, string> = {
-  ai: "Ai",
-  astrid: "Astrid (CPO)",
-  caspar: "Caspar (Image Specialist)",
-  charles: "Charles (Engineering Head)",
-  clay: "Clay (3D Artist)",
-  cra: "CodeReviewAgent",
-  felix: "Felix (Unity Dev)",
-  finn: "Finn (CFO)",
-  galen: "Galen",
-  grover: "Grover (OpenClaw Mechanic)",
-  hanzo: "Hanzo (Repo Manager)",
-  igor: "Igor (Back End Dev)",
-  jiwon: "Jiwon",
-  kana: "Kana (Documentation Specialist)",
-  ken: "Ken (Private Tutor)",
-  kenji: "Kenji (Game Director)",
-  lacey: "Lacey",
-  laren: "Laren (CDO)",
-  maren: "Maren (Travel Agent)",
-  matt: "Matt Henry",
-  mckell: "Mckell (CMO)",
-  mika: "Mika (Torrent Lord)",
-  noah: "Noah (React Native Dev)",
-  penny: "Penny (UI Designer)",
-  poe: "Poe (Writer)",
-  sage: "Sage (Frontend Dev)",
-  signe: "Signe (UX Researcher)",
-  tdd: "TestDrivenDevelopmentAgent",
-  woz: "Woz",
-  yoshi: "Yoshi (ILL Liason)",
-};
-
-export function resolveAgentSlugForDisplayName(name: string): string {
-  const normalized = name.trim().toLowerCase();
-  if (AGENT_SLUG_MAP[normalized]) return normalized;
-  const match = Object.entries(AGENT_SLUG_MAP).find(([, displayName]) => displayName.toLowerCase() === normalized);
-  return match?.[0] ?? name;
+export function normalizeAgentTarget(name: string): string {
+  return name.trim().split(/\s+/)[0]?.toLowerCase() ?? name.trim().toLowerCase();
 }
 
 /**
  * Resolve a name to a Linear user.
  *
  * Resolution order:
- * 1. Slug map lookup — expand known agent slugs to canonical display names
- * 2. Linear `containsIgnoreCase` query
- * 3. Exact case-insensitive match on display name
- * 4. Exact app-user shortname match on the original input
- * 5. Prefix match (single user's name starts with query)
- * 6. Single result fallback
- * 7. Error with candidates
+ * 1. Linear `containsIgnoreCase` query
+ * 2. Exact case-insensitive match on display name (the typed slug matches the
+ *    live display name directly, e.g. `charles` ↔ "Charles")
+ * 3. Exact app-user shortname match on the original input (first token of an
+ *    app user's name equals the typed slug — catches any not-yet-renamed
+ *    parenthesized name, e.g. `ken` ↔ "Ken (Private Tutor)")
+ * 4. Prefix match (single user's name starts with query)
+ * 5. Single result fallback
+ * 6. Error with candidates
+ *
+ * No slug→display-name table: with parentheticals removed from agent display
+ * names (INF-1628), a slug is an exact case-insensitive match on the live name,
+ * so step 2 resolves it. The shortname (step 3) still covers any leftover
+ * parenthesized name and prevents `ken`/`kenji` prefix collisions.
  */
 export async function findUserByName(name: string): Promise<{ id: string; name: string; email?: string | null; app?: boolean | null }> {
-  // Step 1: Slug map expansion — resolve known agent slugs to canonical display names
-  // before the API query, preventing prefix collisions like `ken` matching both
-  // "Ken (Private Tutor)" and "Kenji (Game Director)".
   const originalName = name;
-  const slugName = AGENT_SLUG_MAP[originalName.toLowerCase()];
-  if (slugName) {
-    name = slugName;
-  }
   const data = await linearGraphQL<SearchUsersResponse>(
     `
       query SearchUsers($query: String!) {

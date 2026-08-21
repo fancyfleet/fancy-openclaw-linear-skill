@@ -18,7 +18,7 @@ import {
 import { setProxyIntent, setProxyTarget, setProxyRewindTarget, setProxyMigrateTarget, setProxyCodeArtifact, setProxySubstitutionReason, setProxyBreakGlass } from "./client";
 import { getComments, getIssueHistory } from "./boards";
 import { getSelfUser } from "./auth";
-import { addComment, getIssue, resolveAgentSlugForDisplayName, resolveUserWithHints, updateIssue } from "./issues";
+import { addComment, getIssue, normalizeAgentTarget, resolveUserWithHints, updateIssue } from "./issues";
 import { createDuplicateRelation } from "./relations";
 import { findStateByType } from "./states";
 import { resolveLabelIds } from "./labels";
@@ -247,7 +247,7 @@ export async function refuseWork(
   // ENG-43 stewardship-reseat stalls). Sent unconditionally: on an ungoverned
   // ticket the connector only reads cliTarget inside its governed transition path,
   // so the header is inert there.
-  setProxyTarget(resolveAgentSlugForDisplayName(delegateName));
+  setProxyTarget(normalizeAgentTarget(delegateName));
   try {
     return await executeTransition("refuseWork", {
       issueId,
@@ -464,7 +464,7 @@ export async function handoffWork(
   try {
   if (governedStateLabel && !options?.reviewHandoff) {
     setProxyIntent("handoff");
-    setProxyTarget(resolveAgentSlugForDisplayName(delegateName));
+    setProxyTarget(normalizeAgentTarget(delegateName));
     return await executeTransition("handoffWork", {
       issueId,
       comment,
