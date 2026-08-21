@@ -527,14 +527,14 @@ describe("findUserByName", () => {
     expect(user.id).toBe("u-signe");
   });
 
-  // INF-80: slug map resolves colliding prefixes (e.g. `ken` → "Ken (Private Tutor)")
-  // without hitting the prefix-ambiguity error. The slug is expanded to the full
-  // display name before the API query, so the exact-match path succeeds.
-  it("resolves known slug via AGENT_SLUG_MAP before API query", async () => {
+  // INF-80 / INF-1628: colliding prefixes (e.g. `ken` matching both "Ken" and
+  // "Kenji") resolve without a slug-map. If a parenthetical is still present, the
+  // app-shortname first-token match picks the exact slug owner.
+  it("resolves a colliding slug via the app-shortname match (no slug map)", async () => {
     mockedGraphQL.mockResolvedValue({
       users: { nodes: [
-        { id: "u-ken", name: "Ken (Private Tutor)" },
-        { id: "u-kenji", name: "Kenji (Game Director)" }
+        { id: "u-ken", name: "Ken (Private Tutor)", app: true },
+        { id: "u-kenji", name: "Kenji (Game Director)", app: true }
       ] }
     });
     const user = await findUserByName("ken");
@@ -542,8 +542,22 @@ describe("findUserByName", () => {
     expect(user.name).toBe("Ken (Private Tutor)");
   });
 
-  // INF-80: unknown slug falls through to normal prefix/single-result resolution
-  it("falls through to prefix match when slug is not in AGENT_SLUG_MAP", async () => {
+  // INF-1628: once parentheticals are removed, the typed slug is an exact
+  // case-insensitive match on the live display name — no table, no shortname.
+  it("resolves a colliding slug via exact match on the de-parenthesized name", async () => {
+    mockedGraphQL.mockResolvedValue({
+      users: { nodes: [
+        { id: "u-ken", name: "Ken", app: true },
+        { id: "u-kenji", name: "Kenji", app: true }
+      ] }
+    });
+    const user = await findUserByName("ken");
+    expect(user.id).toBe("u-ken");
+    expect(user.name).toBe("Ken");
+  });
+
+  // Unknown slug falls through to normal prefix/single-result resolution
+  it("falls through to prefix match for an unknown single name", async () => {
     mockedGraphQL.mockResolvedValue({
       users: { nodes: [
         { id: "u-whoami", name: "Whoami (Mysterious)" }
@@ -564,6 +578,44 @@ describe("findUserByName", () => {
     });
     await expect(findUserByName("sig")).rejects.toThrow("Could not uniquely resolve");
   });
+
+// INF-1628: the retired agent-slug table carried stale parenthesized display
+// names ("Charles (Engineering Head)", "Grover (OpenClaw Mechanic)"). Matt removed
+// the parentheticals from every agent's Linear name, so the map forced a query for a
+// name no user has → 0 results → "Could not uniquely resolve", breaking every
+// slug-targeted verb (handoff-work, refuse-work, continue-workflow <slug>).
+// With the map gone, the typed slug is an exact case-insensitive match on the
+// live de-parenthesized display name, and humans still resolve without a table.
+describe("findUserByName — INF-1628 de-parenthesized slug resolution (no slug map)", () => {
+  // Live user set after Matt's rename. Mock the containsIgnoreCase server filter.
+  const LIVE = [
+    { id: "u-charles", name: "Charles", app: true },
+    { id: "u-grover", name: "Grover", app: true },
+    { id: "u-astrid", name: "Astrid", app: true },
+    { id: "u-matt", name: "Matt Henry", app: false },
+  ];
+  beforeEach(() => {
+    mockedGraphQL.mockImplementation(async (_q: string, vars?: any) => {
+      const q = String(vars?.query ?? "").toLowerCase();
+      return { users: { nodes: LIVE.filter((u) => u.name.toLowerCase().includes(q)) } } as any;
+    });
+  });
+
+  it.each([
+    ["charles", "u-charles"],
+    ["Grover", "u-grover"],
+    ["ASTRID", "u-astrid"],
+  ])("resolves agent slug %s regardless of case", async (input, expectedId) => {
+    const user = await findUserByName(input);
+    expect(user.id).toBe(expectedId);
+  });
+
+  it("resolves 'matt' to the human (app falsy) — needs-human guard keys on this", async () => {
+    const user = await findUserByName("matt");
+    expect(user.id).toBe("u-matt");
+    expect(user.app).not.toBe(true);
+  });
+});
 
 describe("rewriteIssueLinks", () => {
   const KEY = "fancymatt";

@@ -12,18 +12,18 @@
  * role re-pooling (the INF-1507 / ENG-58 / ENG-43 stewardship-reseat stalls).
  *
  * Fix (defect 1, part A): `refuseWork` calls
- * `setProxyTarget(resolveAgentSlugForDisplayName(delegateName))` and clears it in
+ * `setProxyTarget(normalizeAgentTarget(delegateName))` and clears it in
  * `finally`, exactly like the governed `handoffWork` path.
  *
- * Part B (slug-map completeness) is covered by the AGENT_SLUG_MAP cases below:
- * an agent missing from the map resolves to the raw parenthesized display name,
- * which the connector's `getAgent(cliTarget)` cannot match → re-pool. charles /
- * galen / jiwon were absent and are now present, so a display-name refuse target
- * forwards the correct slug.
+ * INF-1628: part A originally used an agent-slug lookup table
+ * that carried stale parenthesized display names and broke every slug-targeted
+ * verb once Matt de-parenthesized the agents' Linear names. The map is gone;
+ * `normalizeAgentTarget` derives the bare slug from the typed input (first token,
+ * lowercased) with no string table. Covered by the INF-1628 cases below.
  */
 
 import { refuseWork } from "../semantic";
-import { addComment, getIssue, updateIssue, resolveUserWithHints, resolveAgentSlugForDisplayName } from "../issues";
+import { addComment, getIssue, updateIssue, resolveUserWithHints, normalizeAgentTarget } from "../issues";
 import { getSelfUser } from "../auth";
 import { findSemanticState } from "../states";
 import { setProxyIntent, setProxyTarget } from "../client";
@@ -135,31 +135,34 @@ describe("INF-1516 defect 1A — refuse-work forwards the explicit target", () =
     expect(mockSetProxyIntent).toHaveBeenLastCalledWith(undefined);
   });
 
-  it("forwards the correct slug when the target is given as a full display name (needs slug map)", async () => {
+  it("forwards the bare slug when the target is given as a (possibly parenthesized) display name", async () => {
     mockResolveUserWithHints.mockResolvedValue(CHARLES as any);
     mockGetIssue.mockReset();
     mockGetIssue.mockResolvedValueOnce(govImplIssue).mockResolvedValue(reseat(CHARLES));
     mockUpdateIssue.mockResolvedValue(reseat(CHARLES));
     await refuseWork("INF-1507", "Charles (Engineering Head)", { comment: "reseat to engineering head" });
 
-    // Without charles in AGENT_SLUG_MAP, resolveAgentSlugForDisplayName returns
-    // the raw "Charles (Engineering Head)" string, which getAgent(cliTarget) on
-    // the connector cannot match → re-pool. With the map entry it forwards "charles".
+    // INF-1628: the header must carry the bare slug the connector's getAgent(cliTarget)
+    // matches against. normalizeAgentTarget takes the first token lowercased, so a
+    // leftover parenthesized display name still collapses to "charles" — no slug table.
     expect(mockSetProxyTarget).toHaveBeenNthCalledWith(1, "charles");
   });
 });
 
-describe("INF-1516 defect 1B — AGENT_SLUG_MAP completeness", () => {
+// INF-1628: normalizeAgentTarget replaces the drift-prone agent-slug table. It
+// carries whatever was typed to the proxy as a bare, lowercased first-token slug.
+describe("INF-1628 — normalizeAgentTarget (proxy target, table-free)", () => {
   it.each([
-    ["charles", "Charles (Engineering Head)"],
-    ["galen", "Galen"],
-    ["jiwon", "Jiwon"],
-  ])("resolves %s from both slug and canonical display name", (slug, displayName) => {
-    expect(resolveAgentSlugForDisplayName(slug)).toBe(slug);
-    expect(resolveAgentSlugForDisplayName(displayName)).toBe(slug);
+    ["charles", "charles"],       // bare slug passes through
+    ["Grover", "grover"],         // de-parenthesized display name → slug
+    ["ASTRID", "astrid"],         // case-insensitive
+    ["Igor (Back End Dev)", "igor"], // leftover parenthetical → first token
+  ])("normalizes %s → %s", (input, expected) => {
+    expect(normalizeAgentTarget(input)).toBe(expected);
   });
 
-  it("still returns the raw input for a genuinely unknown name (no over-broad match)", () => {
-    expect(resolveAgentSlugForDisplayName("Nobody (Not An Agent)")).toBe("Nobody (Not An Agent)");
+  it("passes a UUID through lowercased (hex — lossless, no whitespace)", () => {
+    expect(normalizeAgentTarget("336FB582-6613-4E86-A83E-5B42FD269E5D"))
+      .toBe("336fb582-6613-4e86-a83e-5b42fd269e5d");
   });
 });
