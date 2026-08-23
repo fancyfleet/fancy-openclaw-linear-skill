@@ -1055,8 +1055,9 @@ async function main(): Promise<void> {
     .option("--comment <msg>", INLINE_COMMENT_HELP)
     .option("--comment-file <path>", "Read comment from file")
     .option("--force-duplicate", "Bypass near-duplicate comment detection and force the post")
+    .option("--code-artifact <branch@sha>", "Declare the code artifact this move delivers, e.g. feature/LSG-6-economy@1bb909d. Required when the resolved command is `submit` (push-before-claim gate reads this header, not your comment). Recorded on the ticket.")
     .description("Generic forward transition: proxy resolves to the `generic: continue` command for the current workflow state (e.g. brief-ready, submit, approve, filed)")
-    .action(async (id: string, target: string | undefined, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean }) => {
+    .action(async (id: string, target: string | undefined, options: { comment?: string; commentFile?: string; forceDuplicate?: boolean; codeArtifact?: string }) => {
       await runCommand(async () => continueWorkflow(id, target, options), program.opts<{ human?: boolean }>().human);
     });
 
