@@ -21,7 +21,7 @@ import { normalizeWorkflowId, appendWorkflowRequestMarker, WF_PENDING_LABEL } fr
 import { searchIssues } from "./search";
 import { linearTest } from "./test";
 import { runMetrics } from "./metrics";
-import { linearGraphQL, LinearApiError, setProxyCommandId } from "./client";
+import { linearGraphQL, LinearApiError, setProxyCommandId, setProxyDispatchGeneration, setProxyDispatchTicket } from "./client";
 import { normalizeCliDescription, relativeTime, wrapText } from "./utils";
 import { ObserveResult } from "./semantic";
 import { setDebugMode, isDebugMode } from "./debug";
@@ -327,7 +327,17 @@ function levenshtein(a: string, b: string): number {
 
 async function main(): Promise<void> {
   const program = new Command();
-  program.name("linear").description("Linear CLI for OpenClaw").version(pkg.version, "-v, --version", "Print the installed CLI version").option("--human", "Use readable output").option("--debug", "Dump raw GraphQL errors to stderr");
+  program.name("linear").description("Linear CLI for OpenClaw").version(pkg.version, "-v, --version", "Print the installed CLI version").option("--human", "Use readable output").option("--debug", "Dump raw GraphQL errors to stderr").option("--dispatch-generation <token>", "Watchdog replacement credential printed in the dispatch message");
+  program.hook("preAction", (_root, actionCommand) => {
+    const generation = program.opts<{ dispatchGeneration?: string }>().dispatchGeneration;
+    const ticket = actionCommand.args.find((arg) => typeof arg === "string" && /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(arg));
+    setProxyDispatchGeneration(generation);
+    setProxyDispatchTicket(ticket);
+  });
+  program.hook("postAction", () => {
+    setProxyDispatchGeneration(undefined);
+    setProxyDispatchTicket(undefined);
+  });
   setDebugMode(!!program.opts<{ debug?: boolean }>().debug);
 
   // Unknown command — suggest similar command names
