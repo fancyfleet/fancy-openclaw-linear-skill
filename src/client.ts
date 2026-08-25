@@ -114,6 +114,8 @@ export function setProxyComment(comment: string | undefined): void {
  */
 let _proxyCodeArtifact: string | undefined;
 let _proxySubstitutionReason: string | undefined;
+let _proxyDispatchGeneration: string | undefined;
+let _proxyDispatchTicket: string | undefined;
 
 export function setProxyCodeArtifact(artifact: string | undefined): void {
   _proxyCodeArtifact = artifact;
@@ -121,6 +123,16 @@ export function setProxyCodeArtifact(artifact: string | undefined): void {
 
 export function setProxySubstitutionReason(reason: string | undefined): void {
   _proxySubstitutionReason = reason;
+}
+
+/** INF-1745: credential issued to a watchdog replacement seat. */
+export function setProxyDispatchGeneration(generation: string | undefined): void {
+  _proxyDispatchGeneration = generation;
+}
+
+/** INF-1745: ticket the current CLI command is acting on. */
+export function setProxyDispatchTicket(ticket: string | undefined): void {
+  _proxyDispatchTicket = ticket;
 }
 
 /**
@@ -147,6 +159,10 @@ function proxyHeaders(): Record<string, string> {
   if (_proxyCommentSatisfiedBy) headers["X-Openclaw-Comment-Satisfied-By"] = _proxyCommentSatisfiedBy;
   if (_proxyComment) headers["X-Openclaw-Comment"] = encodeURIComponent(_proxyComment);
   if (_proxyCodeArtifact) headers["X-Openclaw-Code-Artifact"] = _proxyCodeArtifact;
+  const dispatchGeneration = _proxyDispatchGeneration ?? process.env.OPENCLAW_DISPATCH_GENERATION;
+  const dispatchTicket = _proxyDispatchTicket ?? process.env.OPENCLAW_DISPATCH_TICKET;
+  if (dispatchGeneration) headers["X-Openclaw-Dispatch-Generation"] = dispatchGeneration;
+  if (dispatchTicket) headers["X-Openclaw-Dispatch-Ticket"] = dispatchTicket;
   // Percent-encoded: the reason is agent-authored free text and routinely
   // contains non-latin-1 characters (em-dashes, emoji). Node throws on a header
   // value it cannot encode, which would turn a declared substitution — the

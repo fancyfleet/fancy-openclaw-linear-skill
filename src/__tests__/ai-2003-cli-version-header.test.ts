@@ -13,7 +13,7 @@
  */
 
 import axios from "axios";
-import { linearGraphQL, setProxyIntent, setProxyComment } from "../client";
+import { linearGraphQL, setProxyIntent, setProxyComment, setProxyDispatchGeneration, setProxyDispatchTicket } from "../client";
 import pkg from "../../package.json";
 
 jest.mock("axios");
@@ -54,12 +54,16 @@ describe("AI-2003 — CLI version header on proxied requests", () => {
     mockedAxios.post.mockResolvedValue({ data: { data: { ok: true } } });
     mockedAxios.get.mockResolvedValue({ data: { protocolVersion: "1", minCliVersion: "0.3.8" }, headers: {} });
     setProxyIntent(undefined);
+    setProxyDispatchGeneration(undefined);
+    setProxyDispatchTicket(undefined);
   });
 
   afterEach(() => {
     if (OLD_ENV === undefined) delete process.env.LINEAR_PROXY_URL;
     else process.env.LINEAR_PROXY_URL = OLD_ENV;
     setProxyIntent(undefined);
+    setProxyDispatchGeneration(undefined);
+    setProxyDispatchTicket(undefined);
   });
 
   it("emits X-Openclaw-Linear-Cli-Version carrying the real package version when proxied", async () => {
@@ -95,6 +99,19 @@ describe("AI-2003 — CLI version header on proxied requests", () => {
       })
     );
     expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("propagates the watchdog replacement credential and ticket on proxied writes", async () => {
+    process.env.LINEAR_PROXY_URL = "https://proxy.example.test/proxy/graphql";
+    setProxyDispatchGeneration("dg2_replacement-token");
+    setProxyDispatchTicket("INF-1745");
+
+    await linearGraphQL("mutation { commentCreate(input: {}) { success } }");
+
+    expect(lastPostHeaders()).toEqual(expect.objectContaining({
+      "X-Openclaw-Dispatch-Generation": "dg2_replacement-token",
+      "X-Openclaw-Dispatch-Ticket": "INF-1745",
+    }));
   });
 
   it("refuses before GraphQL when the connector requires a newer CLI", async () => {
