@@ -1226,15 +1226,37 @@ export async function filed(
 export async function continueWorkflow(
   issueId: string,
   target?: string,
-  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean }
+  options?: { comment?: string; commentFile?: string; forceDuplicate?: boolean; codeArtifact?: string }
 ): Promise<SemanticResult> {
+  // LSG-6 (2026-08-23): the generic forward verb resolves to `submit` on an
+  // implementation state, where the connector's push-before-claim gate reads
+  // the artifact ONLY from the X-Openclaw-Code-Artifact header — never from
+  // the comment. Without this option an implementer using the generic verb
+  // could not satisfy the gate at all. Explicit only: no git derivation here,
+  // because continue-workflow is also run by reviewers/deployers whose cwd
+  // is not the artifact (submit keeps its INF-1267 derivation).
+  let comment = options?.comment;
+  let commentFile = options?.commentFile;
+  const artifact = options?.codeArtifact ? parseCodeArtifact(options.codeArtifact) : undefined;
+  if (artifact) {
+    if (commentFile) {
+      comment = (await fs.readFile(commentFile, "utf8")).trim();
+      commentFile = undefined;
+    }
+    const recipient = target
+      ? await resolveUserWithHints(target, "continue-workflow")
+      : await getSelfUser();
+    const body = comment?.trim() || `Continuing. Artifact: ${formatCodeArtifact(artifact)}`;
+    comment = `${body}\n\n${buildArtifactMarker(artifact, recipient.id)}`;
+    setProxyCodeArtifact(formatCodeArtifact(artifact));
+  }
   setProxyTarget(target);
   setProxyIntent("continue-workflow");
   try {
     return await executeTransition("continue-workflow", {
       issueId,
-      comment: options?.comment,
-      commentFile: options?.commentFile,
+      comment,
+      commentFile,
       forceDuplicate: options?.forceDuplicate,
       userName: target,
     }, {
@@ -1245,6 +1267,7 @@ export async function continueWorkflow(
   } finally {
     setProxyIntent(undefined);
     setProxyTarget(undefined);
+    setProxyCodeArtifact(undefined);
   }
 }
 
